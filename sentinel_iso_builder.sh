@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Sentinel OS v1.0 ISO Build – Phased Interactive Script (Bookworm-safe)
-# Base: Debian 12 (Bookworm) amd64
-# live-build version: 20230502 compatible
+# Sentinel OS v1.0 ISO Build – Phased Interactive Script (Bookworm SAFE, FIXED)
+# Debian 12 (Bookworm) amd64
+# live-build 20230502 compatible
 #
-# IMPORTANT:
-# - Run as a normal user (e.g. 'builder'), NOT root
-# - User must have sudo access
-# - This script intentionally avoids unsupported live-build flags
+# This version includes:
+# - No unsupported live-build flags
+# - Correct repo sections (non-free-firmware)
+# - Bookworm-valid package names only
+# - Heavy / external tools deferred to post-install
+# - Correct hook stage ordering
+#
+# Run as normal user with sudo rights (NOT root)
 
 set -euo pipefail
 
@@ -16,15 +20,12 @@ pause() {
   echo
 }
 
-# -------------------------------------------------
-# Pre-flight guard
-# -------------------------------------------------
 if [ "$EUID" -eq 0 ]; then
   echo "[!] Do not run this script as root."
   exit 1
 fi
 
-echo "=== Sentinel OS v1.0 ISO Build (Phased, Bookworm-safe) ==="
+echo "=== Sentinel OS v1.0 ISO Build (Bookworm-safe, FIXED) ==="
 
 # -------------------------------------------------
 # PHASE 0: Sanity checks
@@ -37,16 +38,10 @@ if [ "$ARCH" != "amd64" ]; then
   exit 1
 fi
 echo "[+] Architecture OK (amd64)"
-
-if ! command -v sudo >/dev/null 2>&1; then
-  echo "[!] sudo not installed"
-  exit 1
-fi
-
 pause
 
 # -------------------------------------------------
-# PHASE 1: Install build dependencies
+# PHASE 1: Dependencies
 # -------------------------------------------------
 echo "[PHASE 1] Installing build dependencies"
 
@@ -54,22 +49,16 @@ sudo apt update
 sudo apt install -y   sudo live-build debootstrap squashfs-tools xorriso   git ca-certificates gnupg
 
 if ! groups | grep -q '\bsudo\b'; then
-  echo "[*] Adding user to sudo group"
   sudo usermod -aG sudo "$USER"
-  echo "[!] Log out and back in, then re-run the script."
+  echo "[!] User added to sudo group. Log out/in and re-run."
   exit 0
 fi
 
-# Ensure debootstrap is discoverable in all contexts
-if [ ! -x /usr/bin/debootstrap ]; then
-  sudo ln -sf /usr/sbin/debootstrap /usr/bin/debootstrap
-fi
-
-echo "[+] Dependencies installed"
+[ -x /usr/bin/debootstrap ] || sudo ln -sf /usr/sbin/debootstrap /usr/bin/debootstrap
 pause
 
 # -------------------------------------------------
-# PHASE 2: Prepare workspace
+# PHASE 2: Workspace
 # -------------------------------------------------
 echo "[PHASE 2] Preparing workspace"
 
@@ -79,44 +68,34 @@ cd "$WORKDIR"
 
 sudo lb clean --purge || true
 rm -rf .build cache || true
-
-echo "[+] Workspace ready at $WORKDIR"
 pause
 
 # -------------------------------------------------
-# PHASE 3: live-build configuration (Bookworm-safe)
+# PHASE 3: live-build config (Bookworm native)
 # -------------------------------------------------
-echo "[PHASE 3] Configuring live-build (native amd64 bootstrap)"
+echo "[PHASE 3] Configuring live-build"
 
-sudo lb config   --distribution bookworm   --architectures amd64   --binary-images iso-hybrid   --debian-installer live   --archive-areas "main"   --bootappend-live "boot=live components quiet splash"   --iso-volume "Sentinel OS 1.0"   --iso-application "Sentinel OS"   --iso-publisher "Sentinel OS Project"   --apt-recommends false
+sudo lb config   --distribution bookworm   --architectures amd64   --binary-images iso-hybrid   --debian-installer live   --archive-areas "main contrib non-free non-free-firmware"   --bootappend-live "boot=live components quiet splash"   --iso-volume "Sentinel OS 1.0"   --iso-application "Sentinel OS"   --iso-publisher "Sentinel OS Project"   --apt-recommends false
 
-echo "[+] live-build configured"
+sudo chown -R "$USER:$USER" config
 pause
 
 # -------------------------------------------------
-# PHASE 4: APT sources and policy
+# PHASE 4: APT sources
 # -------------------------------------------------
-echo "[PHASE 4] Writing APT sources and policies"
+echo "[PHASE 4] Writing APT sources"
 
 mkdir -p config/archives
 cat << EOF > config/archives/bookworm.list.chroot
-deb http://deb.debian.org/debian bookworm main
-deb http://security.debian.org/debian-security bookworm-security main
+deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
+deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
 EOF
-
-mkdir -p config/includes.chroot/etc/apt/apt.conf.d
-cat << EOF > config/includes.chroot/etc/apt/apt.conf.d/99sentinel
-APT::Install-Recommends "false";
-APT::Install-Suggests "false";
-EOF
-
-echo "[+] APT configuration written"
 pause
 
 # -------------------------------------------------
 # PHASE 5: Package lists
 # -------------------------------------------------
-echo "[PHASE 5] Creating package lists"
+echo "[PHASE 5] Writing package lists"
 
 mkdir -p config/package-lists
 
@@ -140,21 +119,16 @@ firejail-profiles
 ufw
 nmap
 wireshark
-zeek
 rsyslog
 lynis
-openvas
-yara
-osquery
-plaso
-sleuthkit
 clamav
+yara
+sleuthkit
 gnupg
 kleopatra
 cryptsetup
-veracrypt
+firmware-linux-free
 tor
-torbrowser-launcher
 torsocks
 nyx
 obfs4proxy
@@ -163,6 +137,7 @@ pandoc
 graphviz
 plantuml
 mousepad
+firefox-esr
 curl
 wget
 git
@@ -171,14 +146,12 @@ ca-certificates
 python3
 python3-pip
 EOF
-
-echo "[+] Package lists created"
 pause
 
 # -------------------------------------------------
-# PHASE 6: LightDM configuration
+# PHASE 6: LightDM config
 # -------------------------------------------------
-echo "[PHASE 6] Configuring LightDM for MATE"
+echo "[PHASE 6] Configuring LightDM"
 
 mkdir -p config/includes.chroot/etc/lightdm/lightdm.conf.d
 cat << EOF > config/includes.chroot/etc/lightdm/lightdm.conf.d/50-sentinel.conf
@@ -186,23 +159,20 @@ cat << EOF > config/includes.chroot/etc/lightdm/lightdm.conf.d/50-sentinel.conf
 greeter-session=lightdm-gtk-greeter
 user-session=mate
 EOF
-
-echo "[+] LightDM configured"
 pause
 
 # -------------------------------------------------
-# PHASE 7: Hardening hook
+# PHASE 7: Hardening hook (binary stage)
 # -------------------------------------------------
 echo "[PHASE 7] Installing hardening hook"
 
-mkdir -p config/hooks/normal
-cat << 'EOF' > config/hooks/normal/001-sentinel-hardening.hook.chroot
+mkdir -p config/hooks/binary
+cat << 'EOF' > config/hooks/binary/001-sentinel-hardening.hook.binary
 #!/bin/sh
 set -e
-systemctl enable apparmor || true
+systemctl enable apparmor.service || true
 ufw default deny incoming || true
 ufw default allow outgoing || true
-ufw enable || true
 systemctl disable avahi-daemon.service || true
 systemctl disable bluetooth.service || true
 cat << 'SYSCTL' > /etc/sysctl.d/99-sentinel.conf
@@ -217,24 +187,20 @@ net.ipv4.conf.all.send_redirects=0
 net.ipv4.conf.all.accept_source_route=0
 net.ipv6.conf.all.accept_source_route=0
 SYSCTL
-sysctl --system || true
 EOF
 
-chmod +x config/hooks/normal/001-sentinel-hardening.hook.chroot
-
-echo "[+] Hardening hook installed"
+chmod +x config/hooks/binary/001-sentinel-hardening.hook.binary
 pause
 
 # -------------------------------------------------
 # PHASE 8: Build ISO
 # -------------------------------------------------
-echo "[PHASE 8] Building Sentinel OS ISO"
-echo "[!] This may take 20–60 minutes"
+echo "[PHASE 8] Building ISO (this will take time)"
 
-sudo lb clean --purge
+sudo lb clean
+sudo lb config
 sudo lb build
 
-echo "[+] Build completed"
+echo "[+] Build complete. ISO output:"
 ls -lh *.iso || true
-
-echo "=== Sentinel OS ISO build finished ==="
+echo "=== Sentinel OS v1.0 build finished ==="
