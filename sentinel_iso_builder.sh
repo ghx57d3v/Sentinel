@@ -88,7 +88,7 @@ pause
 # -------------------------------------------------
 echo "[PHASE 3] Configuring live-build (native amd64 bootstrap)"
 
-sudo lb config   --distribution bookworm   --architectures amd64   --bootstrap debootstrap   --binary-images iso-hybrid   --debian-installer live   --archive-areas "main"   --bootappend-live "boot=live components quiet splash"   --iso-volume "Sentinel OS 1.0"   --iso-application "Sentinel OS"   --iso-publisher "Sentinel OS Project"   --apt-recommends false
+sudo lb config   --distribution bookworm   --architectures amd64   --binary-images iso-hybrid   --debian-installer live   --archive-areas "main"   --bootappend-live "boot=live components quiet splash"   --iso-volume "Sentinel OS 1.0"   --iso-application "Sentinel OS"   --iso-publisher "Sentinel OS Project"   --apt-recommends false
 
 echo "[+] live-build configured"
 pause
