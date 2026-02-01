@@ -6,7 +6,7 @@ This repository contains the official v1.0 ISO build system, implemented using D
 
 =====================================================================
 PROJECT GOALS
-======================================================
+=====================================================================
 
 Sentinel OS v1.0 prioritises:
 - Deterministic, reproducible ISO builds
@@ -23,7 +23,7 @@ Sentinel OS v1.0 intentionally avoids:
 
 =====================================================================
 BASE PLATFORM
-======================================================
+=====================================================================
 
 - Upstream: Debian GNU/Linux 12 (Bookworm)
 - Architecture: amd64 only
@@ -33,7 +33,7 @@ BASE PLATFORM
 
 =====================================================================
 INCLUDED FEATURES (v1.0)
-======================================================
+=====================================================================
 
 Desktop & UX:
 - MATE Desktop
@@ -68,7 +68,7 @@ post-install profiles and/or later Sentinel OS releases.
 
 =====================================================================
 REPOSITORY CONTENTS
-======================================================
+=====================================================================
 
 - sentinel_iso_builder.sh
 - README (this document)
@@ -83,7 +83,7 @@ The build script is a phased, interactive ISO builder that:
 
 =====================================================================
 REQUIREMENTS
-======================================================
+=====================================================================
 
 Host System:
 - Debian 12 (Bookworm) recommended
@@ -97,7 +97,7 @@ User Requirements:
 
 =====================================================================
 BUILD INSTRUCTIONS
-======================================================
+=====================================================================
 
 chmod +x sentinel_iso_builder.sh
 ./sentinel_iso_builder.sh
@@ -109,7 +109,7 @@ The resulting ISO will be created in the working directory.
 
 =====================================================================
 DESIGN PHILOSOPHY
-======================================================
+=====================================================================
 
 Sentinel OS follows these principles:
 - Correct before clever
@@ -119,7 +119,7 @@ Sentinel OS follows these principles:
 
 =====================================================================
 VERSIONING STRATEGY
-======================================================
+=====================================================================
 
 - v1.0: Stable base OS and security baseline
 - v1.1+: Optional tooling profiles and research additions
@@ -127,7 +127,7 @@ VERSIONING STRATEGY
 
 =====================================================================
 STATUS
-======================================================
+=====================================================================
 
 Sentinel OS v1.0 – Base ISO build system complete (pending ISO validation).
 
