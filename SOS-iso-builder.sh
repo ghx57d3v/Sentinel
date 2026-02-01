@@ -410,18 +410,20 @@ sudo lb build
 echo "[+] Build complete. ISO output(s):"
 ls -lh *.iso || true
 
-ISO_SRC="live-image-amd64.hybrid.iso"
-ISO_DST="Sentinel-OS-v1.0-amd64.iso"
+echo"[+] Locating and renaming live-build-amd64.hybrid.iso > Sentinel-OS-v1.0-amd64.iso"
 
-if [ -f "$ISO_SRC" ]; then
-  mv "$ISO_SRC" "$ISO_DST"
-  echo "[+] ISO renamed to $ISO_DST"
-else
-  echo "[!] Expected ISO not found: $ISO_SRC"
-  ls -lh *.iso || true
+ISO_FOUND="$(ls -1 *.iso 2>/sev/null | head -n 1)"
+
+if [ -z "$ISO_FOUND": ]; then
+  echo "[!] ERROT: No ISO file found after build..."
+    exit 1
 fi
 
-sha256sum "$ISO_DST" > "$ISO_DST.sha256"
-echo "[+] SHA256 checksum written to $ISO_DST.sha256"
+ISO_DIST="Sentinel-OS-v1.0-amd64.iso"
 
+echo "[+] ISO FOUND: $ISO_FOUND"
+mv "$ISO_FOUND" > "$ISO_DST"
+
+sha256sum "$ISO_DST" > "ISO_DST.sha256"
+echo "[+] SHA256 checksum written to: $ISO_DST.sha256"
 echo "=== Sentinel OS v1.0 build finished ==="
