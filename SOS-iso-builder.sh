@@ -32,17 +32,19 @@ echo "=== Sentinel OS v1.0 ISO Build (Sentinel way) ==="
 # -------------------------------------------------
 # PHASE 0: Sanity checks
 # -------------------------------------------------
-echo "[PHASE 0] Sanity checks"
+echo "[PHASE 0] SANITY CHECKS"
 ARCH="$(dpkg --print-architecture)"
 [ "$ARCH" = "amd64" ] || die "Host architecture is $ARCH (expected amd64)."
 pause
 
+echo "[+] Sainty checks passed successfully. Proceeding with PHASE 1: Dependencies..."
+
 # -------------------------------------------------
 # PHASE 1: Dependencies
 # -------------------------------------------------
-echo "[PHASE 1] Installing build dependencies"
+echo "[PHASE 1] IINSTALL AND BUILD DEPENDENCIES"
 sudo apt update
-sudo apt install -y sudo live-build debootstrap squashfs-tools xorriso   git ca-certificates gnupg
+sudo apt install -y sudo live-build debootstrap squashfs-tools xorriso git ca-certificates gnupg
 
 if ! groups | grep -q '\bsudo\b'; then
   sudo usermod -aG sudo "$USER"
@@ -54,31 +56,40 @@ fi
 [ -x /usr/bin/debootstrap ] || sudo ln -sf /usr/sbin/debootstrap /usr/bin/debootstrap
 pause
 
+echo "[+] Dependencies installed successfully..."
+
 # -------------------------------------------------
 # PHASE 2: Workspace
 # -------------------------------------------------
-echo "[PHASE 2] Preparing workspace"
+echo "[PHASE 2] PREPARING WORKSPACE"
+
 WORKDIR="$HOME/sentinel-iso"
 mkdir -p "$WORKDIR"
 cd "$WORKDIR"
+
 sudo lb clean --purge || true
 rm -rf .build cache || true
 pause
 
+echo "[+] Workspace prepared cleanly..."
+
 # -------------------------------------------------
 # PHASE 3: live-build config
 # -------------------------------------------------
-echo "[PHASE 3] Configuring live-build"
+echo "[PHASE 3] CONFIGURING LIVE-BUILD"
 sudo lb config   --distribution bookworm   --architectures amd64   --binary-images iso-hybrid   --debian-installer live   --archive-areas "main contrib non-free non-free-firmware"   --bootappend-live "boot=live components quiet splash"   --iso-volume "Sentinel OS 1.0"   --iso-application "Sentinel OS"   --iso-publisher "Sentinel OS Project"   --apt-recommends false
 
 # live-build creates root-owned config; fix for subsequent file writes
 sudo chown -R "$USER:$USER" config
 pause
 
+echo "[+] Live-Build configured successfully..."
+ 
 # -------------------------------------------------
 # PHASE 4: APT sources and policy
 # -------------------------------------------------
-echo "[PHASE 4] Writing APT sources and policy"
+echo "[PHASE 4] WRITING APT SOURCES DIRECTLY"
+
 mkdir -p config/archives
 cat << EOF > config/archives/bookworm.list.chroot
 deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
@@ -86,6 +97,7 @@ deb http://security.debian.org/debian-security bookworm-security main contrib no
 EOF
 
 # Disable recommends/suggests inside chroot for deterministic installs
+
 mkdir -p config/includes.chroot/etc/apt/apt.conf.d
 cat << EOF > config/includes.chroot/etc/apt/apt.conf.d/99sentinel
 APT::Install-Recommends "false";
@@ -93,10 +105,13 @@ APT::Install-Suggests "false";
 EOF
 pause
 
+echo "[+] APT sources and policy completed successfully..."
+
 # -------------------------------------------------
 # PHASE 5: Package lists (Bookworm-valid)
 # -------------------------------------------------
-echo "[PHASE 5] Writing package lists"
+echo "[PHASE 5] WRITING PACKAGE LISTS, BOOKWORM-VAILD"
+
 mkdir -p config/package-lists
 
 cat << EOF > config/package-lists/mate.list.chroot
@@ -169,10 +184,13 @@ make
 EOF
 pause
 
+echo "[+] Package lists written successfully..."
+
 # -------------------------------------------------
 # PHASE 6: LightDM / MATE config
 # -------------------------------------------------
-echo "[PHASE 6] Configuring LightDM for MATE"
+echo "[PHASE 6] CONFIGURING LIGHTDM AND MATE DE"
+
 mkdir -p config/includes.chroot/etc/lightdm/lightdm.conf.d
 cat << EOF > config/includes.chroot/etc/lightdm/lightdm.conf.d/50-sentinel.conf
 [SeatDefaults]
@@ -180,11 +198,12 @@ greeter-session=lightdm-gtk-greeter
 user-session=mate
 EOF
 pause
+echo "[+] MATE and LightDM configured successfully..."
 
 # -------------------------------------------------
 # PHASE 7: Binary-stage baseline hardening (CONFIG ONLY)
 # -------------------------------------------------
-echo "[PHASE 7] Installing baseline hardening (binary stage)"
+echo "[PHASE 7] INSTALLING BASELINE HARDENING (binary stage)"
 mkdir -p config/hooks/binary
 
 cat << 'EOF' > config/hooks/binary/001-sentinel-baseline-hardening.hook.binary
@@ -219,10 +238,12 @@ EOF
 chmod +x config/hooks/binary/001-sentinel-baseline-hardening.hook.binary
 pause
 
+echo "[+] Kernel hardening completed successfully..."
+
 # -------------------------------------------------
 # PHASE 8: First-boot hardening + one-time banner (ENFORCEMENT)
 # -------------------------------------------------
-echo "[PHASE 8] Wiring first-boot hardening + banner"
+echo "[PHASE 8] WIRING FIRST-BOOT HARDENING + BANNER"
 
 mkdir -p config/includes.chroot/usr/local/sbin
 cat << 'EOF' > config/includes.chroot/usr/local/sbin/sentinel-firstboot.sh
@@ -329,10 +350,13 @@ NoDisplay=true
 EOF
 pause
 
+echo "[+] First-boot hardening and banner completed successfully..."
+
 # -------------------------------------------------
 # PHASE 9: Post-install profile framework (opt-in)
 # -------------------------------------------------
-echo "[PHASE 9] Adding post-install profile framework"
+echo "[PHASE 9] ADDING POST-INSTALL PROFILE FRAMEWORKS"
+
 mkdir -p config/includes.chroot/usr/local/share/sentinel/profiles
 mkdir -p config/includes.chroot/usr/local/sbin
 
@@ -384,7 +408,7 @@ cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/red.sh
 #!/bin/sh
 set -e
 apt update
-apt install -y masscan hydra aircrack-ng
+apt install -y masscan hydra aircrack-ng burp
 echo "NOTE: responder/bettercap may require non-Debian sources on Bookworm." >&2
 EOF
 
@@ -399,10 +423,13 @@ EOF
 chmod +x config/includes.chroot/usr/local/share/sentinel/profiles/*.sh
 pause
 
+echo "[+] Profiles written successfully..."
+
 # -------------------------------------------------
 # PHASE 10: Build ISO (ONE FINAL BUILD)
 # -------------------------------------------------
-echo "[PHASE 10] Building ISO"
+echo "[PHASE 10] BUILDING ISO"
+
 sudo lb clean
 sudo lb config
 sudo lb build
@@ -426,4 +453,5 @@ mv "$ISO_FOUND" > "$ISO_DST"
 
 sha256sum "$ISO_DST" > "ISO_DST.sha256"
 echo "[+] SHA256 checksum written to: $ISO_DST.sha256"
-echo "=== Sentinel OS v1.0 build finished ==="
+
+echo "======== Sentinel OS v1.0 build fcompleted. =========="
