@@ -394,21 +394,21 @@ cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/blue.sh
 #!/bin/sh
 set -e
 apt update
-apt install -y tcpdump strace ltrace sysstat radare2 testdisk photorec
+apt install -y tcpdump strace ltrace sysstat radare2 testdisk photorec zeel arkime
 EOF
 
 cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/developer.sh
 #!/bin/sh
 set -e
 apt update
-apt install -y default-jdk gcc gdb valgrind make
+apt install -y default-jdk gcc gdb valgrind llvm ghidra afl++ radare2 docker.io
 EOF
 
 cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/red.sh
 #!/bin/sh
 set -e
 apt update
-apt install -y masscan hydra aircrack-ng burp
+apt install -y masscan hydra aircrack-ng 
 echo "NOTE: responder/bettercap may require non-Debian sources on Bookworm." >&2
 EOF
 
