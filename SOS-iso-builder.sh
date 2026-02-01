@@ -165,22 +165,28 @@ graphviz
 plantuml
 mousepad
 
+# Graphics
+gimp
+inkscape
+
 # Browser
 firefox-esr
+epiphany-browser
 
 # Utilities
+macchanger
 curl
 wget
 git
 jq
 ca-certificates
+gnome-software-plugin-flatpak
 python3
 python3-pip
 synaptic
 gdebi
-gimp
-inkscape
 make
+electrum
 EOF
 pause
 
@@ -394,21 +400,21 @@ cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/blue.sh
 #!/bin/sh
 set -e
 apt update
-apt install -y tcpdump strace ltrace sysstat radare2 testdisk photorec zeel arkime
+apt install -y tcpdump strace ltrace sysstat radare2 testdisk photorec zeek autopsy hydra auditd aide ossec-hids-agent rkhunter lynis  logwatch rsyslog nftables 
 EOF
 
 cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/developer.sh
 #!/bin/sh
 set -e
 apt update
-apt install -y default-jdk gcc gdb valgrind llvm ghidra afl++ radare2 docker.io
+apt install -y default-jdk gcc gdb valgrind llvm ghidra afl++ radare2 docker.io appimage-cli-tool geany codium build-essential cmake meson ninja-build pkg-config git-lfs subversion python3-venv python3-dev default-jdk nodejs npm golang rustc cargo gdb strace ltrace valgrind docker-compose podman qemu-system qemu-utils libvirt-daemon-system virt-manager vim neovim emacs curl httpie openssh-client sqlite3 postgresql postgresql-client htop linux-perf bpftrace 
 EOF
 
 cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/red.sh
 #!/bin/sh
 set -e
 apt update
-apt install -y masscan hydra aircrack-ng 
+apt install -y masscan hydra aircrack-ng nikto sqlmap john john-data burp kayak subfinder sherlock bettercap netcat-openbsd hashcat reaver ffuf socat
 echo "NOTE: responder/bettercap may require non-Debian sources on Bookworm." >&2
 EOF
 
@@ -416,7 +422,7 @@ cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/purple.s
 #!/bin/sh
 set -e
 apt update
-apt install -y suricata tcpdump jq
+apt install -y suricata tcpdump jq nikto sqlmap msfconsole john john-data kayak sherlock subfinder hydra aircrack-ng zeek bettercap auditd aide lynis rkhunter reaver
 echo "NOTE: sigma-cli may not be available in Debian repos; add later if desired." >&2
 EOF
 
@@ -440,18 +446,17 @@ ls -lh *.iso || true
 echo"[+] Locating and renaming live-build-amd64.hybrid.iso > Sentinel-OS-v1.0-amd64.iso"
 
 ISO_FOUND="$(ls -1 *.iso 2>/sev/null | head -n 1)"
+ISO_DIST="Sentinel-OS-v1.0-amd64.iso"
 
 if [ -z "$ISO_FOUND": ]; then
   echo "[!] ERROT: No ISO file found after build..."
     exit 1
 fi
 
-ISO_DIST="Sentinel-OS-v1.0-amd64.iso"
-
 echo "[+] ISO FOUND: $ISO_FOUND"
-mv "$ISO_FOUND" > "$ISO_DST"
+sudo mv "$ISO_FOUND" > "$ISO_DST"
 
-sha256sum "$ISO_DST" > "ISO_DST.sha256"
+sudo sha256sum "$ISO_DST" > "ISO_DST.sha256"
 echo "[+] SHA256 checksum written to: $ISO_DST.sha256"
 
-echo "======== Sentinel OS v1.0 build fcompleted. =========="
+echo "======== Sentinel OS v1.0 build completed successfully. =========="
