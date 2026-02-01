@@ -193,7 +193,7 @@ chmod +x config/hooks/binary/001-sentinel-hardening.hook.binary
 pause
 
 # -------------------------------------------------
-# PHASE 8: Build ISO
+# PHASE 8: Build ISO & Create Files
 # -------------------------------------------------
 echo "[PHASE 8] Building ISO (this will take time)"
 
@@ -203,4 +203,68 @@ sudo lb build
 
 echo "[+] Build complete. ISO output:"
 ls -lh *.iso || true
-echo "=== Sentinel OS v1.0 build finished ==="
+echo "=== Sentinel OS v1.0 build finished, Creating post install tool profiles ==="
+
+--------------------------------------------------------
+Profiles
+--------------------------------------------------------
+mkdir -p config/includes.chroot/usr/local/share/sentinel/profiles
+mkdir -p config/includes.chroot/usr/local/sbin
+
+cat << 'EOF' > config/includes.chroot/usr/local/sbin/sentinel-profile-manager
+#!/bin/sh
+set -e
+PROFILE_DIR="/usr/local/share/sentinel/profiles"
+LOG="/var/log/sentinel-profiles.log"
+case "$1" in
+ list) ls "$PROFILE_DIR" | sed 's/\.sh$//' ;;
+ install)
+   sh "$PROFILE_DIR/$2.sh" | tee -a "$LOG"
+   touch "/var/lib/sentinel-profile-$2.installed"
+   ;;
+ *) echo "Usage: sentinel-profile-manager {list|install <profile>}"; exit 1 ;;
+esac
+EOF
+chmod +x config/includes.chroot/usr/local/sbin/sentinel-profile-manager
+
+# Research
+cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/research.sh
+#!/bin/sh
+set -e
+apt update
+apt install -y tcpdump strace ltrace sysstat radare2 testdisk photorec
+EOF
+
+# Auto
+cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/auto.sh
+#!/bin/sh
+set -e
+apt update
+apt install -y can-utils python3-can bluez btmon rtl-sdr
+EOF
+
+# Red Team
+cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/red.sh
+#!/bin/sh
+set -e
+apt update
+apt install -y masscan hydra responder bettercap aircrack-ng
+EOF
+
+# Purple Team
+cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/purple.sh
+#!/bin/sh
+set -e
+apt update
+apt install -y suricata sigma-cli tcpdump jq
+EOF
+
+chmod +x config/includes.chroot/usr/local/share/sentinel/profiles/*.sh
+pause
+
+# PHASE 10
+sudo lb clean
+sudo lb config
+sudo lb build
+ls -lh *.iso || true
+
