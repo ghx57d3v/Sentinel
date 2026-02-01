@@ -145,6 +145,11 @@ jq
 ca-certificates
 python3
 python3-pip
+synaptic
+gdebi
+gimp
+inkscape
+make
 EOF
 pause
 
@@ -203,11 +208,9 @@ sudo lb build
 
 echo "[+] Build complete. ISO output:"
 ls -lh *.iso || true
-echo "=== Sentinel OS v1.0 build finished, Creating post install tool profiles ==="
+echo "=== Sentinel OS v1.0 build finished, Creating post install tool profiles... ==="
 
---------------------------------------------------------
-Profiles
---------------------------------------------------------
+#Profiles
 mkdir -p config/includes.chroot/usr/local/share/sentinel/profiles
 mkdir -p config/includes.chroot/usr/local/sbin
 
@@ -227,20 +230,20 @@ esac
 EOF
 chmod +x config/includes.chroot/usr/local/sbin/sentinel-profile-manager
 
-# Research
-cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/research.sh
+# Blue Team
+cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/blue.sh
 #!/bin/sh
 set -e
 apt update
 apt install -y tcpdump strace ltrace sysstat radare2 testdisk photorec
 EOF
 
-# Auto
-cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/auto.sh
+# Developer
+cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/developer.sh
 #!/bin/sh
 set -e
 apt update
-apt install -y can-utils python3-can bluez btmon rtl-sdr
+apt install -y openjdk-11-jdk gcc codeblocks geany gdb valgrind 
 EOF
 
 # Red Team
@@ -248,7 +251,7 @@ cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/red.sh
 #!/bin/sh
 set -e
 apt update
-apt install -y masscan hydra responder bettercap aircrack-ng
+apt install -y masscan hydra responder bettercap aircrack-ng can-utils python3-can bluez btmon rtl-sdr
 EOF
 
 # Purple Team
@@ -267,4 +270,3 @@ sudo lb clean
 sudo lb config
 sudo lb build
 ls -lh *.iso || true
-
