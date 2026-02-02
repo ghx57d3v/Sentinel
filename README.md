@@ -4,9 +4,7 @@ Sentinel OS is a hardened, security-focused Debian-based operating system design
 
 This repository contains the official v1.0 ISO build system, implemented using Debian live-build and targeting Debian 12 (Bookworm) with the MATE desktop environment.
 
-=====================================================================
 PROJECT GOALS
-=====================================================================
 
 Sentinel OS v1.0 prioritises:
 - Deterministic, reproducible ISO builds
