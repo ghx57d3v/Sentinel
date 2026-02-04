@@ -180,7 +180,7 @@ mousepad
 # --- Graphics ---
 gimp
 inkscape
-imagemagick
+eog
 
 # --- Browser ---
 firefox-esr
@@ -395,28 +395,28 @@ cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/blue.sh
 #!/bin/sh
 set -e
 apt update
-apt install -y tcpdump strace ltrace sysstat radare2 testdisk photorec
+apt install -y tcpdump strace ltrace sysstat radare2 testdisk photorec zeek suricata auditd aide ossec-hids-agent rkhunter lynis logwatch
 EOF
 
 cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/developer.sh
 #!/bin/sh
 set -e
 apt update
-apt install -y default-jdk gcc gdb valgrind make
+apt install -y default-jdk gcc gdb valgrind build-essential cmake meson ninja-build python3-venv git-lfs shellcheck blender geany
 EOF
 
 cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/red.sh
 #!/bin/sh
 set -e
 apt update
-apt install -y masscan hydra aircrack-ng
+apt install -y masscan hydra aircrack-ng metasploit-framework sqlmap nikto john john-data hashcat bettercap netcat-openbsd open-ssl age
 EOF
 
 cat << 'EOF' > config/includes.chroot/usr/local/share/sentinel/profiles/purple.sh
 #!/bin/sh
 set -e
 apt update
-apt install -y suricata tcpdump jq
+apt install -y suricata tcpdump jq zeek tcpdump yara sigma-cli auditd aide stegohide stegosuite lynis
 EOF
 
 chmod +x config/includes.chroot/usr/local/share/sentinel/profiles/*.sh
