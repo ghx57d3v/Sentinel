@@ -188,7 +188,9 @@ epiphany-browser
 
 # --- Utilities ---
 curl
+flatpak
 wget
+gnome-software-plugin-flatpak
 git
 jq
 ca-certificates
