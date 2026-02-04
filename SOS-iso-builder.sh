@@ -207,19 +207,37 @@ pause
 # -------------------------------------------------
 echo "[PHASE 6] CONFIGURING LIGHTDM + MATE"
 mkdir -p config/includes.chroot/etc/lightdm/lightdm.conf.d
-cat << EOF > config/includes.chroot/etc/lightdm/lightdm.conf.d/50-sentinel.conf
+
+cat << 'EOF' > config/includes.chroot/etc/lightdm/lightdm.conf.d/50-sentinel.conf
 [SeatDefaults]
 greeter-session=lightdm-gtk-greeter
 user-session=mate
 EOF
 
-# Add a small delay to avoid LightDM/Xorg race conditions (common in VMs)
-mkdir -p config/includes.chroot/etc/systemd/system/lightdm.service.d
-cat << 'EOF' > config/includes.chroot/etc/systemd/system/lightdm.service.d/10-sentinel-delay.conf
-[Service]
-ExecStartPre=/bin/sleep 2
+cat << 'EOF' > config/includes.chroot/etc/lightdm/lightdm.conf.d/60-sentinel-live-autologin.conf
+[SeatDefaults]
+autologin-user=user
+autologin-user-timeout=0
 EOF
+
+# Gate autologin to LIVE mode only
+mkdir -p config/includes.chroot/usr/local/sbin
+cat << 'EOF' > config/includes.chroot/usr/local/sbin/sentinel-live-guard.sh
+#!/bin/sh
+if ! grep -q 'boot=live' /proc/cmdline; then
+  rm -f /etc/lightdm/lightdm.conf.d/60-sentinel-live-autologin.conf
+fi
+EOF
+chmod +x config/includes.chroot/usr/local/sbin/sentinel-live-guard.sh
+
+mkdir -p config/hooks/normal
+cat << 'EOF' > config/hooks/normal/010-sentinel-live-guard.hook.chroot
+#!/bin/sh
+/usr/local/sbin/sentinel-live-guard.sh || true
+EOF
+chmod +x config/hooks/normal/010-sentinel-live-guard.hook.chroot
 pause
+
 
 # -------------------------------------------------
 # PHASE 7: Baseline hardening (FILES ONLY; no systemctl in live media)
