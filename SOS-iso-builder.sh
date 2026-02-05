@@ -110,6 +110,23 @@ EOF
 pause
 
 # -------------------------------------------------
+# PHASE 4: APT sources and policy
+# -------------------------------------------------
+echo "[PHASE 4.5] DEFINING LIVE USER"
+
+mkdir -pconfig/includes.chroot/etc/live
+
+cat << 'EOF' > config/includes.chroot/etc/live/
+config.conf
+LIVE_USERNAME="user"
+LIVE_USER_FULLNAME="Sentinel Live"
+LIVE_USER_DEFAULT_GROUPS="audio cdrom dip floppy video plugdev netdev sudo"
+LIVE_USER_NO_PASSWORD="true"
+EOF
+
+pause
+
+# -------------------------------------------------
 # PHASE 5: Package lists (Bookworm-valid + VM/GUI stability)
 # -------------------------------------------------
 echo "[PHASE 5] WRITING PACKAGE LISTS (BOOKWORM-VALID)"
@@ -129,6 +146,7 @@ EOF
 
 cat << EOF > config/package-lists/sentinel-core.list.chroot
 # --- Desktop / VM stability ---
+live-config
 xorg
 xserver-xorg-core
 xserver-xorg-input-all
