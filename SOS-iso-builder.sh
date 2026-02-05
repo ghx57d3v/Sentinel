@@ -110,20 +110,18 @@ EOF
 pause
 
 # -------------------------------------------------
-# PHASE 4: APT sources and policy
+# PHASE 4.5: DEFINING LIVE USER
 # -------------------------------------------------
 echo "[PHASE 4.5] DEFINING LIVE USER"
 
-mkdir -pconfig/includes.chroot/etc/live
+mkdir -p config/includes.chroot/etc/live
 
-cat << 'EOF' > config/includes.chroot/etc/live/
-config.conf
+cat << 'EOF' > config/includes.chroot/etc/live/config.conf
 LIVE_USERNAME="user"
 LIVE_USER_FULLNAME="Sentinel Live"
 LIVE_USER_DEFAULT_GROUPS="audio cdrom dip floppy video plugdev netdev sudo"
 LIVE_USER_NO_PASSWORD="true"
 EOF
-
 pause
 
 # -------------------------------------------------
@@ -150,7 +148,6 @@ live-config
 xorg
 xserver-xorg-core
 xserver-xorg-input-all
-xserver-xorg-video-all
 xserver-xorg-video-fbdev
 xserver-xorg-video-vesa
 xserver-xorg-video-qxl
@@ -209,6 +206,8 @@ curl
 flatpak
 wget
 gnome-software-plugin-flatpak
+xdg-desktop-portal
+xdg-desktop-portal-gtk
 git
 jq
 ca-certificates
