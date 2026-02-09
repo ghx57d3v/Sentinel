@@ -1,16 +1,12 @@
 #!/usr/bin/env bash
-# Sentinel OS v1.0 (MINIMAL) ISO Build Script
-# Debian 12 (Bookworm) amd64 | live-build compatible
+# Sentinel OS v1.0 ISO Build Script
+# Debian 12 (Bookworm) amd64
 #
-# Goals:
-# - Build a bootable, installable Debian live ISO with MATE
-# - Minimal, solid baseline (no external tooling profiles, no vendor binaries)
-# - Live session boots to GUI reliably in common hypervisors
-# - Hardening is applied on FIRST BOOT of INSTALLED system only (never on live boots)
-#
-# Notes on reproducibility:
-# - This uses standard Debian mirrors by default (not deterministic across time).
-# - For deterministic builds, point the sources to a fixed snapshot mirror you control.
+# Scope:
+# - Live boot on real hardware
+# - Bare-metal installation
+# - NO virtual machine / hypervisor support
+
 
 set -euo pipefail
 
@@ -21,7 +17,7 @@ if [ "${EUID:-$(id -u)}" -eq 0 ]; then
   die "Do not run as root. Run as a normal user with sudo."
 fi
 
-echo "=== Sentinel OS v1.0 (MINIMAL) ISO Build ==="
+echo "=== Sentinel OS v1.0.1 ISO Build ==="
 
 # -------------------------------------------------
 # PHASE 0: Sanity checks
@@ -37,7 +33,8 @@ pause
 echo "[PHASE 1] INSTALL BUILD DEPENDENCIES"
 sudo apt update
 sudo apt install -y \
-  live-build debootstrap squashfs-tools xorriso git ca-certificates gnupg
+  live-build debootstrap squashfs-tools xorriso git \
+  ca-certificates gnupg
 
 if ! groups | grep -q '\bsudo\b'; then
   sudo usermod -aG sudo "$USER"
@@ -45,7 +42,6 @@ if ! groups | grep -q '\bsudo\b'; then
   exit 0
 fi
 
-# Ensure debootstrap is discoverable (some PATH edge cases)
 [ -x /usr/bin/debootstrap ] || sudo ln -sf /usr/sbin/debootstrap /usr/bin/debootstrap
 pause
 
@@ -65,9 +61,6 @@ pause
 # PHASE 3: live-build config
 # -------------------------------------------------
 echo "[PHASE 3] CONFIGURING LIVE-BUILD"
-# - iso-hybrid for USB booting
-# - grub-efi for UEFI (and BIOS via hybrid)
-# - debian-installer live for installable ISO
 
 sudo lb config \
   --distribution bookworm \
@@ -75,21 +68,21 @@ sudo lb config \
   --binary-images iso-hybrid \
   --bootloader grub-efi \
   --debian-installer live \
+  --debian-installer-gui true \
   --archive-areas "main contrib non-free non-free-firmware" \
-  --bootappend-live "boot=live components" \
-  --iso-volume "Sentinel OS 1.0" \
+  --bootappend-live "boot=live components quiet splash" \
+  --iso-volume "Sentinel OS 1.0.1" \
   --iso-application "Sentinel OS" \
   --iso-publisher "Sentinel OS Project" \
   --apt-recommends false
 
-# live-build creates root-owned config; fix for subsequent writes
 sudo chown -R "$USER:$USER" config
 pause
 
 # -------------------------------------------------
-# PHASE 4: APT sources + policy (chroot)
+# PHASE 4: APT sources + policy
 # -------------------------------------------------
-echo "[PHASE 4] WRITING APT SOURCES + POLICY"
+echo "[PHASE 4] APT CONFIGURATION"
 mkdir -p config/archives
 
 cat > config/archives/bookworm.list.chroot <<'EOF'
@@ -105,12 +98,11 @@ EOF
 pause
 
 # -------------------------------------------------
-# PHASE 5: Package lists (minimal, Bookworm-valid)
+# PHASE 5: Package lists (bare-metal only)
 # -------------------------------------------------
-echo "[PHASE 5] WRITING PACKAGE LISTS"
+echo "[PHASE 5] PACKAGE LISTS"
 mkdir -p config/package-lists
 
-# Desktop: MATE + LightDM + NetworkManager
 cat > config/package-lists/10-desktop-mate.list.chroot <<'EOF'
 mate-desktop-environment
 lightdm
@@ -122,27 +114,24 @@ sudo
 zenity
 EOF
 
-# Core: live support + VM-friendly graphics + baseline security
 cat > config/package-lists/20-sentinel-core.list.chroot <<'EOF'
-# --- Live boot plumbing ---
+# Live system
 live-boot
 live-config
 live-tools
 
-# --- Kernel ---
+# Kernel
 linux-image-amd64
 
-# --- X / graphics (VM-friendly) ---
+# Xorg + real hardware drivers only
 xorg
 xserver-xorg-core
 xserver-xorg-input-all
-xserver-xorg-video-vesa
-xserver-xorg-video-fbdev
-xserver-xorg-video-qxl
-spice-vdagent
-qemu-guest-agent
+xserver-xorg-video-intel
+xserver-xorg-video-amdgpu
+xserver-xorg-video-nouveau
 
-# --- Baseline security (minimal + solid) ---
+# Baseline security
 apparmor
 apparmor-utils
 apparmor-profiles
@@ -151,9 +140,19 @@ unattended-upgrades
 needrestart
 chrony
 
-# --- Essentials ---
+# Essentials
 ca-certificates
 gnupg
+gdebi
+synaptic
+make
+cmake
+firefox-esr
+epiphany-browser
+geany
+gimp
+inkscape
+libreoffice
 curl
 wget
 git
@@ -163,11 +162,10 @@ EOF
 pause
 
 # -------------------------------------------------
-# PHASE 6: Live user + LightDM autologin (live-only)
+# PHASE 6: Live user + LightDM
 # -------------------------------------------------
-echo "[PHASE 6] CONFIGURING LIVE USER + LIGHTDM"
+echo "[PHASE 6] LIVE USER + DISPLAY"
 
-# live-config will create the user automatically.
 mkdir -p config/includes.chroot/etc/live
 cat > config/includes.chroot/etc/live/config.conf <<'EOF'
 LIVE_USERNAME="user"
@@ -176,7 +174,6 @@ LIVE_USER_DEFAULT_GROUPS="audio cdrom dip floppy video plugdev netdev sudo"
 LIVE_USER_NO_PASSWORD="true"
 EOF
 
-# LightDM defaults (MATE session)
 mkdir -p config/includes.chroot/etc/lightdm/lightdm.conf.d
 cat > config/includes.chroot/etc/lightdm/lightdm.conf.d/50-sentinel.conf <<'EOF'
 [Seat:*]
@@ -184,14 +181,12 @@ greeter-session=lightdm-gtk-greeter
 user-session=mate
 EOF
 
-# Autologin config present in image, but removed on non-live boots by guard service
 cat > config/includes.chroot/etc/lightdm/lightdm.conf.d/60-sentinel-live-autologin.conf <<'EOF'
 [Seat:*]
 autologin-user=user
 autologin-user-timeout=0
 EOF
 
-# Live autologin guard: if NOT boot=live, remove autologin file before display-manager starts
 mkdir -p config/includes.chroot/usr/local/sbin
 cat > config/includes.chroot/usr/local/sbin/sentinel-live-guard.sh <<'EOF'
 #!/bin/sh
@@ -199,7 +194,6 @@ set -eu
 if ! grep -q 'boot=live' /proc/cmdline 2>/dev/null; then
   rm -f /etc/lightdm/lightdm.conf.d/60-sentinel-live-autologin.conf
 fi
-exit 0
 EOF
 chmod +x config/includes.chroot/usr/local/sbin/sentinel-live-guard.sh
 
@@ -218,13 +212,12 @@ ExecStart=/usr/local/sbin/sentinel-live-guard.sh
 [Install]
 WantedBy=multi-user.target
 EOF
-
 pause
 
 # -------------------------------------------------
-# PHASE 7: Baseline hardening (files only)
+# PHASE 7: Sysctl hardening (files only)
 # -------------------------------------------------
-echo "[PHASE 7] BASELINE HARDENING (FILES ONLY)"
+echo "[PHASE 7] SYSCTL HARDENING"
 mkdir -p config/includes.chroot/etc/sysctl.d
 cat > config/includes.chroot/etc/sysctl.d/99-sentinel.conf <<'EOF'
 kernel.kptr_restrict=2
@@ -233,7 +226,6 @@ kernel.yama.ptrace_scope=2
 
 net.ipv4.ip_forward=0
 net.ipv6.conf.all.forwarding=0
-
 net.ipv4.conf.all.accept_redirects=0
 net.ipv6.conf.all.accept_redirects=0
 net.ipv4.conf.all.send_redirects=0
@@ -245,51 +237,37 @@ pause
 # -------------------------------------------------
 # PHASE 8: First-boot hardening (installed system only)
 # -------------------------------------------------
-echo "[PHASE 8] FIRST-BOOT HARDENING (INSTALLED SYSTEM ONLY)"
+echo "[PHASE 8] FIRST-BOOT HARDENING"
 
 cat > config/includes.chroot/usr/local/sbin/sentinel-firstboot.sh <<'EOF'
 #!/bin/sh
 set -eu
 
-# Never run in LIVE environment.
 if grep -q 'boot=live' /proc/cmdline 2>/dev/null; then
   exit 0
 fi
 
 LOG="/var/log/sentinel-firstboot.log"
 MARK="/var/lib/sentinel-firstboot.done"
-
 mkdir -p /var/lib
-if [ -f "$MARK" ]; then
-  exit 0
-fi
 
-echo "[Sentinel] First boot hardening started" >> "$LOG" || true
+[ -f "$MARK" ] && exit 0
 
-# Apply sysctl now
 sysctl --system >> "$LOG" 2>&1 || true
 
-# Firewall defaults + enable
 if command -v ufw >/dev/null 2>&1; then
   ufw default deny incoming >> "$LOG" 2>&1 || true
   ufw default allow outgoing >> "$LOG" 2>&1 || true
   ufw --force enable >> "$LOG" 2>&1 || true
 fi
 
-# Ensure AppArmor is enabled + running
 systemctl enable apparmor.service >> "$LOG" 2>&1 || true
-systemctl start  apparmor.service >> "$LOG" 2>&1 || true
-
-# Reduce common desktop attack surface (installed system)
+systemctl start apparmor.service >> "$LOG" 2>&1 || true
 systemctl disable avahi-daemon.service >> "$LOG" 2>&1 || true
 systemctl disable bluetooth.service >> "$LOG" 2>&1 || true
 
 touch "$MARK"
-echo "[Sentinel] First boot hardening completed" >> "$LOG" || true
-
-# Self-disable
 systemctl disable sentinel-firstboot.service >> "$LOG" 2>&1 || true
-exit 0
 EOF
 chmod +x config/includes.chroot/usr/local/sbin/sentinel-firstboot.sh
 
@@ -306,51 +284,38 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 EOF
-
 pause
 
 # -------------------------------------------------
-# PHASE 9: Enable minimal services deterministically (idempotent hook)
+# PHASE 9: Enable services
 # -------------------------------------------------
-echo "[PHASE 9] ENABLING SERVICES (DETERMINISTIC)"
+echo "[PHASE 9] ENABLE SERVICES"
 mkdir -p config/hooks/normal
-
 cat > config/hooks/normal/090-enable-services.hook.chroot <<'EOF'
 #!/bin/sh
 set -eu
-
-# Enable guard + firstboot by creating the wants symlinks.
 mkdir -p /etc/systemd/system/multi-user.target.wants
-
 ln -sf /etc/systemd/system/sentinel-live-guard.service \
   /etc/systemd/system/multi-user.target.wants/sentinel-live-guard.service
-
 ln -sf /etc/systemd/system/sentinel-firstboot.service \
   /etc/systemd/system/multi-user.target.wants/sentinel-firstboot.service
-
-exit 0
 EOF
 chmod +x config/hooks/normal/090-enable-services.hook.chroot
 pause
 
 # -------------------------------------------------
-# PHASE 10: Build ISO + checksum
+# PHASE 10: Build ISO
 # -------------------------------------------------
 echo "[PHASE 10] BUILDING ISO"
 sudo lb clean
 sudo lb build 2>&1 | tee "$WORKDIR/build.log"
 
-echo "[+] Build complete. ISO output(s):"
-ls -lh ./*.iso || true
+ISO_FOUND="$(ls -1 *.iso 2>/dev/null | head -n1 || true)"
+[ -n "$ISO_FOUND" ] || die "No ISO produced."
 
-ISO_FOUND="$(ls -1 ./*.iso 2>/dev/null | head -n 1 || true)"
-[ -n "$ISO_FOUND" ] || die "No ISO file found after build."
-
-ISO_DST="Sentinel-OS-v1.0-amd64.iso"
+ISO_DST="Sentinel-OS-v1.0.1-amd64.iso"
 mv "$ISO_FOUND" "$ISO_DST"
 sha256sum "$ISO_DST" > "$ISO_DST.sha256"
 
-echo "[+] Artifacts:"
+echo "[+] Built:"
 ls -lh "$ISO_DST" "$ISO_DST.sha256"
-echo "[+] Verify with: sha256sum -c $ISO_DST.sha256"
-
