@@ -54,7 +54,7 @@ mkdir -p "$WORKDIR"
 cd "$WORKDIR"
 
 sudo lb clean --purge || true
-rm -rf .build cache || true
+sudo rm -rf .build cache || true
 pause
 
 # -------------------------------------------------
@@ -146,6 +146,7 @@ gnupg
 gdebi
 synaptic
 make
+mousepad
 cmake
 firefox-esr
 epiphany-browser
@@ -307,7 +308,6 @@ pause
 # PHASE 10: Build ISO
 # -------------------------------------------------
 echo "[PHASE 10] BUILDING ISO"
-sudo lb clean
 sudo lb build 2>&1 | tee "$WORKDIR/build.log"
 
 ISO_FOUND="$(ls -1 *.iso 2>/dev/null | head -n1 || true)"
