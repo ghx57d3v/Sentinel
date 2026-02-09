@@ -172,7 +172,7 @@ cat > config/includes.chroot/etc/live/config.conf <<'EOF'
 LIVE_USERNAME="user"
 LIVE_USER_FULLNAME="Sentinel Live"
 LIVE_USER_DEFAULT_GROUPS="audio cdrom dip floppy video plugdev netdev sudo"
-LIVE_USER_NO_PASSWORD="true"
+LIVE_USER_PASSWORD="live"
 EOF
 
 mkdir -p config/includes.chroot/etc/lightdm/lightdm.conf.d
@@ -313,7 +313,7 @@ sudo lb build 2>&1 | tee "$WORKDIR/build.log"
 ISO_FOUND="$(ls -1 *.iso 2>/dev/null | head -n1 || true)"
 [ -n "$ISO_FOUND" ] || die "No ISO produced."
 
-ISO_DST="Sentinel-OS-v1.0.1-amd64.iso"
+ISO_DST="Sentinel-OS-v0.5-amd64.iso"
 mv "$ISO_FOUND" "$ISO_DST"
 sha256sum "$ISO_DST" > "$ISO_DST.sha256"
 
