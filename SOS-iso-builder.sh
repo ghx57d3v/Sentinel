@@ -68,7 +68,7 @@ sudo lb config \
   --binary-images iso-hybrid \
   --bootloaders "grub-pc grub-efi" \
   --linux-flavours amd64 \ 
-  --linux-packages "linux image linux headers" \
+  --linux-packages "linux-image linux-headers" \
   --debian-installer live \
   --debian-installer-gui true \
   --archive-areas "main contrib non-free non-free-firmware" \
