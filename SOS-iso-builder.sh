@@ -273,7 +273,7 @@ EOF
 # PHASE 4: Build ISO
 # -------------------------------------------------
 echo "[PHASE 4] BUILDING ISO"
-
+echo 'Acquire::ForceIPv4 "true";' | sudo tee /etc/apt/apt.conf.d/99force-ipv4
 sudo lb config \
   --distribution bookworm \
   --debian-installer live \
@@ -284,6 +284,8 @@ sudo lb config \
   --linux-flavours amd64 \
   --linux-packages "linux-image" \
   --archive-areas "main contrib non-free non-free-firmware" \
+  --mirror-binary http://deb.debian.org/debian/ \
+  --mirror-binary-security http://security.debian.org/ \
   --mirror-bootstrap http://deb.debian.org/debian/ \
   --mirror-chroot-security http://security.debian.org/ \
   --bootappend-live "boot=live components quiet splash live-media-path=/live" \
