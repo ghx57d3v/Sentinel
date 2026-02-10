@@ -78,7 +78,7 @@ sudo lb config \
   --iso-publisher "Sentinel OS Project" \
   --apt-recommends false
 
-cat > config/binary <<'EOF' 
+sudo cat > config/binary <<'EOF' 
 LB_BINARY_IMAGES="iso-hybrid" 
 LB_BOOTLOADERS="grub-pc grub-efi" 
 LB_LINUX_FLAVOURS="amd64"
