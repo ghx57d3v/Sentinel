@@ -105,7 +105,7 @@ EOF
 
 cat > /tmp/sentinel-release/etc/os-release.d/sentinel.conf <<'EOF'
 SENTINEL_OS=1
-SENTINEL_CODENAME=bookworm
+SENTINEL_CODENAME=hercules
 EOF
 
 cat > /tmp/sentinel-release/etc/apt/preferences.d/99-sentinel-pin <<'EOF'
@@ -269,9 +269,6 @@ cat > /tmp/sentinel-auth/etc/profile.d/00-sentinel-umask.sh <<'EOF'
 umask 027
 EOF
 
-build_deb sentinel-auth 1.0.0 /tmp/sentinel-auth
-pause
-
 # -------------------------------------------------
 # PHASE 10: Build ISO
 # -------------------------------------------------
@@ -282,9 +279,60 @@ sudo lb build 2>&1 | tee "$WORKDIR/build.log"
 ISO_FOUND="$(ls -1 *.iso 2>/dev/null | head -n1 || true)"
 [ -n "$ISO_FOUND" ] || die "No ISO produced."
 
-ISO_DST="Sentinel-OS-v1.0.0-bookworm-amd64.iso"
+ISO_DST="Sentinel-OS-v1.01-hercules.iso"
 mv "$ISO_FOUND" "$ISO_DST"
 sha256sum "$ISO_DST" > "$ISO_DST.sha256"
 
 echo "[+] Built:"
 ls -lh "$ISO_DST" "$ISO_DST.sha256"
+
+#-------------------------------------------------
+# PHASE 11: Generate build-info.txt
+# -------------------------------------------------
+echo "[PHASE 11] GENERATING BUILD INFO"
+
+BUILD_DATE="$(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
+
+cat > build-info.txt <<EOF
+Sentinel OS Build Information
+=============================
+
+Project: Sentinel OS
+Version: v1.0.0
+Codename: Hercules
+Architecture: amd64
+Desktop: MATE
+Kernel: linux-image-amd64
+
+ISO Filename:
+$ISO_DST
+
+Build Date:
+$BUILD_DATE
+
+Git Commit:
+$GIT_COMMIT
+
+Included Sentinel Policy Packages:
+- sentinel-release
+- sentinel-hardening
+- sentinel-firewall
+- sentinel-auth
+
+Build Mode:
+$( [ "$CI_MODE" -eq 1 ] && echo "CI (non-interactive)" || echo "Interactive" )
+
+Checksum File:
+$ISO_DST.sha256
+
+Notes:
+- Base hardening applied post-install
+- Live session is non-privileged
+- Secure Boot intentionally deferred
+EOF
+
+echo "[+] build-info.txt generated"
+ls -lh build-info.txt
+build_deb sentinel-auth 1.0.0 /tmp/sentinel-auth
+pause
