@@ -292,8 +292,6 @@ sudo lb config \
   --iso-publisher "Sentinel OS Project" \
   --apt-recommends false
 
-  
-sudo lb clean --purge
 sudo lb build 2>&1 | tee "$WORKDIR/build.log"
 
 ISO_FOUND="$(ls -1 *.iso 2>/dev/null | head -n1 || true)"
