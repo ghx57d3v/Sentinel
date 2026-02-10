@@ -72,7 +72,7 @@ sudo lb config \
   --debian-installer live \
   --debian-installer-gui true \
   --archive-areas "main contrib non-free non-free-firmware" \
-  --bootappend-live "boot=live components quiet splash" \
+  --bootappend-live "boot=live components quiet splash live-media-path=/live" \
   --iso-volume "Sentinel OS v1.0" \
   --iso-application "Sentinel OS" \
   --iso-publisher "Sentinel OS Project" \
@@ -80,13 +80,13 @@ sudo lb config \
 
 sudo chown -R "$USER:$USER" config
 
-sudo cat > config/binary <<'EOF' 
-LB_BINARY_IMAGES="iso-hybrid" 
-LB_BOOTLOADERS="grub-pc grub-efi" 
+cat <<'EOF' | sudo tee config/binary >/dev/null
+LB_BINARY_IMAGES="iso-hybrid"
+LB_BOOTLOADERS="grub-pc grub-efi"
 LB_LINUX_FLAVOURS="amd64"
 LB_LINUX_PACKAGES="linux-image linux-headers"
 EOF
-
+sudo chown "$USER:$USER" config/binary
 
 pause
 
@@ -95,6 +95,18 @@ pause
 # -------------------------------------------------
 echo "[PHASE 4] APT CONFIGURATION"
 mkdir -p config/archives
+
+cat > config/includes.chroot/etc/apt/apt.conf.d/99noninteractive <<'EOF'
+Dpkg::Options { "--force-confdef"; "--force-confold"; };
+APT::Get::Assume-Yes "true";
+EOF
+
+cat > config/hooks/normal/005-noninteractive.hook.chroot <<'EOF'
+#!/bin/sh
+set -eu
+export DEBIAN_FRONTEND=noninteractive
+EOF
+chmod +x config/hooks/normal/005-noninteractive.hook.chroot
 
 cat > config/archives/bookworm.list.chroot <<'EOF'
 deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
@@ -130,6 +142,9 @@ cat > config/package-lists/20-sentinel-core.list.chroot <<'EOF'
 live-boot
 live-config
 live-tools
+firmware-linux
+firmware-linux-nonfree
+firmware-misc-nonfree
 
 # Kernel
 linux-image-amd64
@@ -180,7 +195,7 @@ echo "[PHASE 6] LIVE USER + DISPLAY"
 
 mkdir -p config/includes.chroot/etc/live
 cat > config/includes.chroot/etc/live/config.conf <<'EOF'
-LIVE_USERNAME="user"
+LIVE_USER="user"
 LIVE_USER_FULLNAME="Sentinel Live"
 LIVE_USER_DEFAULT_GROUPS="audio cdrom dip floppy video plugdev netdev sudo"
 LIVE_USER_PASSWORD="live"
@@ -320,7 +335,6 @@ pause
 # -------------------------------------------------
 echo "[PHASE 10] BUILDING ISO"
 sudo lb clean --purge
-sudo lb config
 sudo lb build 2>&1 | tee "$WORKDIR/build.log"
 ISO_FOUND="$(ls -1 *.iso 2>/dev/null | head -n1 || true)"
 [ -n "$ISO_FOUND" ] || die "No ISO produced."
