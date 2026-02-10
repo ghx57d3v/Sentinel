@@ -273,14 +273,27 @@ EOF
 # PHASE 4: Build ISO
 # -------------------------------------------------
 echo "[PHASE 4] BUILDING ISO"
+
+# Force IPv4 (host-side; acceptable for now)
 echo 'Acquire::ForceIPv4 "true";' | sudo tee /etc/apt/apt.conf.d/99force-ipv4
-sudo lb config \
+
+# ---- PREPARE CONFIG FILES FIRST ----
+mkdir -p config/installer
+echo bookworm > config/installer/distribution
+
+mkdir -p config/package-lists
+cat > config/package-lists/00-installer.list.binary <<EOF
+debian-installer-launcher
+EOF
+
+# ---- CONFIGURE LIVE-BUILD ----
+lb config \
   --distribution bookworm \
   --architectures amd64 \
   --binary-images iso-hybrid \
   --bootloaders "grub-pc grub-efi" \
   --linux-flavours amd64 \
-  --linux-packages "linux-image" \
+  --linux-packages linux-image \
   --debian-installer live \
   --debian-installer-gui true \
   --archive-areas "main contrib non-free non-free-firmware" \
@@ -294,18 +307,12 @@ sudo lb config \
   --iso-publisher "Sentinel OS Project" \
   --apt-recommends false
 
-sudo mkdir -p config/installer
-echo bookworm > config/installer/distribution
-
-sudo mkdir -p config/package-lists
-cat > config/package-lists/00-installer.list.binary <<EOF
-debian-installer-launcher
-EOF
-
-sudo lb build 2>&1 | tee "$WORKDIR/build.log"
+# ---- BUILD ----
+lb build 2>&1 | tee "$WORKDIR/build.log"
 
 ISO_FOUND="$(ls -1 *.iso 2>/dev/null | head -n1 || true)"
 [ -n "$ISO_FOUND" ] || die "No ISO produced."
+
 
 ISO_DST="Sentinel-OS-v1.01-hercules.iso"
 mv "$ISO_FOUND" "$ISO_DST"
