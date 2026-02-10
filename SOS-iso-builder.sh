@@ -89,35 +89,37 @@ EOF
 sudo chown "$USER:$USER" config/binary
 
 pause
+echo "[PHASE 4] APT + DESKTOP FILESYSTEM SETUP"
 
-# -------------------------------------------------
-# PHASE 4: APT sources + policy
-# -------------------------------------------------
-echo "[PHASE 4] APT CONFIGURATION"
 mkdir -p config/archives
-
-cat > config/includes.chroot/etc/apt/apt.conf.d/99noninteractive <<'EOF'
-Dpkg::Options { "--force-confdef"; "--force-confold"; };
-APT::Get::Assume-Yes "true";
-EOF
-
-cat > config/hooks/normal/005-noninteractive.hook.chroot <<'EOF'
-#!/bin/sh
-set -eu
-export DEBIAN_FRONTEND=noninteractive
-EOF
-chmod +x config/hooks/normal/005-noninteractive.hook.chroot
-
-cat > config/archives/bookworm.list.chroot <<'EOF'
-deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
-deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
-EOF
-
 mkdir -p config/includes.chroot/etc/apt/apt.conf.d
-cat > config/includes.chroot/etc/apt/apt.conf.d/90-sentinel <<'EOF'
-APT::Install-Recommends "false";
-APT::Install-Suggests "false";
-EOF
+
+# -------------------------------------------------
+# Desktop / UI directories (system-wide)
+# -------------------------------------------------
+
+# Wallpapers
+mkdir -p config/includes.chroot/usr/share/backgrounds/sentinel
+
+# Icon themes
+mkdir -p config/includes.chroot/usr/share/icons
+mkdir -p config/includes.chroot/usr/share/icons/sentinel
+
+# GTK / theme directories
+mkdir -p config/includes.chroot/usr/share/themes
+mkdir -p config/includes.chroot/usr/share/themes/sentinel
+
+# MATE defaults (system-wide)
+mkdir -p config/includes.chroot/etc/skel/.config
+mkdir -p config/includes.chroot/etc/skel/.config/mate
+mkdir -p config/includes.chroot/etc/skel/.config/mate/desktop
+mkdir -p config/includes.chroot/etc/skel/.config/mate/desktop/background
+mkdir -p config/includes.chroot/etc/skel/.config/mate/interface
+
+# dconf defaults (preferred over gsettings at build time)
+mkdir -p config/includes.chroot/etc/dconf/db/local.d
+mkdir -p config/includes.chroot/etc/dconf/profile
+
 pause
 
 # -------------------------------------------------
