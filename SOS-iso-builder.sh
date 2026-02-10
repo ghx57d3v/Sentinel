@@ -78,6 +78,8 @@ sudo lb config \
   --iso-publisher "Sentinel OS Project" \
   --apt-recommends false
 
+sudo chown -R "$USER:$USER" config
+
 sudo cat > config/binary <<'EOF' 
 LB_BINARY_IMAGES="iso-hybrid" 
 LB_BOOTLOADERS="grub-pc grub-efi" 
@@ -85,7 +87,7 @@ LB_LINUX_FLAVOURS="amd64"
 LB_LINUX_PACKAGES="linux-image linux-headers"
 EOF
 
-sudo chown -R "$USER:$USER" config
+
 pause
 
 # -------------------------------------------------
