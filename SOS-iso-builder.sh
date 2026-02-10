@@ -278,6 +278,10 @@ sudo lb config \
   --distribution bookworm \
   --debian-installer live \
   --debian-installer-distribution bookworm \
+  --debian-installer live \
+  --debian-installer-gui true \
+  --debian-installer-distribution bookworm \
+  --installer-live true \
   --architectures amd64 \
   --binary-images iso-hybrid \
   --bootloaders "grub-pc grub-efi" \
@@ -288,7 +292,7 @@ sudo lb config \
   --mirror-binary-security http://security.debian.org/ \
   --mirror-bootstrap http://deb.debian.org/debian/ \
   --mirror-chroot-security http://security.debian.org/ \
-  --bootappend-live "boot=live components quiet splash live-media-path=/live" \
+  --bootappend-live "boot=live components live-media-path=/live" \
   --iso-volume "Sentinel OS v1" \
   --iso-application "Sentinel OS" \
   --iso-publisher "Sentinel OS Project" \
