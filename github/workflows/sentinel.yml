@@ -1,0 +1,77 @@
+name: Sentinel OS ISO Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  tags:
+    - "v*"
+
+jobs:
+  build-iso:
+    name: Build Sentinel OS ISO
+    runs-on: ubuntu-22.04
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Show build context
+        run: |
+          echo "Ref: $GITHUB_REF"
+          echo "Commit: $GITHUB_SHA"
+          uname -a
+
+      - name: Install build dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            live-build \
+            debootstrap \
+            squashfs-tools \
+            xorriso \
+            ca-certificates \
+            gnupg \
+            git \
+            dpkg-dev \
+            fakeroot
+
+      - name: Verify debootstrap path
+        run: |
+          if [ ! -x /usr/bin/debootstrap ]; then
+            sudo ln -sf /usr/sbin/debootstrap /usr/bin/debootstrap
+          fi
+          which debootstrap
+
+      - name: Run Sentinel OS ISO build (CI mode)
+        run: |
+          chmod +x ./build.sh
+          ./build.sh --ci
+
+      - name: Verify build outputs
+        run: |
+          ls -lh *.iso
+          ls -lh *.sha256
+          ls -lh build-info.txt
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-os-iso
+          path: |
+            *.iso
+            *.sha256
+            build-info.txt
+
+      - name: Build summary
+        run: |
+          echo "Sentinel OS ISO build completed successfully."
+
