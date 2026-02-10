@@ -276,17 +276,13 @@ echo "[PHASE 4] BUILDING ISO"
 echo 'Acquire::ForceIPv4 "true";' | sudo tee /etc/apt/apt.conf.d/99force-ipv4
 sudo lb config \
   --distribution bookworm \
-  --debian-installer live \
-  --debian-installer-distribution bookworm \
-  --debian-installer live \
-  --debian-installer-gui true \
-  --debian-installer-distribution bookworm \
-  --installer-live true \
   --architectures amd64 \
   --binary-images iso-hybrid \
   --bootloaders "grub-pc grub-efi" \
   --linux-flavours amd64 \
   --linux-packages "linux-image" \
+  --debian-installer live \
+  --debian-installer-gui true \
   --archive-areas "main contrib non-free non-free-firmware" \
   --mirror-binary http://deb.debian.org/debian/ \
   --mirror-binary-security http://security.debian.org/ \
@@ -297,6 +293,14 @@ sudo lb config \
   --iso-application "Sentinel OS" \
   --iso-publisher "Sentinel OS Project" \
   --apt-recommends false
+
+mkdir -p config/installer
+echo bookworm > config/installer/distribution
+
+mkdir -p config/package-lists
+cat > config/package-lists/00-installer.list.binary <<EOF
+debian-installer-launcher
+EOF
 
 sudo lb build 2>&1 | tee "$WORKDIR/build.log"
 
