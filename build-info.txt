@@ -1,0 +1,49 @@
+Sentinel OS Build Information
+===========================
+
+Project: Sentinel OS
+Version: v1.0.0
+Codename: Bookworm
+Base Distribution: Debian 12 (stable)
+Architecture: amd64
+Desktop Environment: MATE
+Kernel: linux-image-amd64
+
+ISO Type:
+- Hybrid ISO (BIOS + UEFI)
+- Live boot + Debian Installer
+
+Security Model:
+- Base system hardened via modular Sentinel policy packages
+- Hardening applied only on installed systems
+- Live environment is non-privileged and convenience-only
+
+Included Sentinel Policy Packages:
+- sentinel-release      (OS identity, APT pinning)
+- sentinel-hardening    (sysctl, AppArmor, journald, updates)
+- sentinel-firewall     (nftables baseline)
+- sentinel-auth         (PAM hardening, sudo logging)
+
+Live Session Properties:
+- Non-admin user
+- No default password
+- Optional autologin
+- Visible warning banner
+
+Installer:
+- Debian Installer (GUI enabled)
+- Bare-metal focused
+
+Build System:
+- live-build
+- debootstrap
+- dpkg-deb (local policy packages)
+- Supports interactive and CI (--ci) mode
+
+Checksum:
+- SHA256 generated post-build
+
+Notes:
+- Secure Boot intentionally deferred
+- No hypervisor-specific tuning
+- Conservative defaults by design
