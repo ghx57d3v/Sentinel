@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Sentinel OS v1 ISO Build Script
-# Debian 12 (Bookworm) amd64 + MATE
+# Sentinel OS v1 ISO Build Script (Debian 12 Bookworm, amd64, MATE)
 #
-# Production Iterations Included:
-# - Iteration 2: Signed Sentinel APT repository (no local .deb shipping)
-# - Iteration 3: Release artifacts, manifests, checksums, signatures
-#
-# Secure Boot intentionally deferred.
+# Goals (v1):
+# - Bare-metal installable ISO (live + installer)
+# - Base hardening applied on installed system via Sentinel "policy packages"
+# - Live session is convenience-only: non-admin, no default password, optional autologin
+# - Secure Boot deferred
 
 set -euo pipefail
 
@@ -17,32 +16,14 @@ if [ "${EUID:-$(id -u)}" -eq 0 ]; then
   die "Do not run as root. Run as a normal user with sudo."
 fi
 
-echo "=== Sentinel OS v1 ISO Build (Production) ==="
-
-# -------------------------------------------------
-# GLOBALS (Iteration 2/3)
-# -------------------------------------------------
-SENTINEL_VERSION="1.0.0"
-SENTINEL_DIST="bookworm"
-SENTINEL_ARCH="amd64"
-
-# Sentinel repo (Iteration 2)
-SENTINEL_REPO_URL="https://repo.sentinel.example/apt"
-SENTINEL_REPO_COMPONENT="main"
-SENTINEL_KEYRING_PKG="sentinel-keyring"
-
-# Signing (Iteration 3)
-SIGNING_TOOL="minisign"     # or "gpg"
-SIGNING_KEY_ID=""           # optional; depends on tool
+echo "=== Sentinel OS v1 ISO Build ==="
 
 # -------------------------------------------------
 # PHASE 0: Sanity checks
 # -------------------------------------------------
 echo "[PHASE 0] SANITY CHECKS"
 ARCH="$(dpkg --print-architecture)"
-[ "$ARCH" = "$SENTINEL_ARCH" ] || die "Host architecture is $ARCH (expected $SENTINEL_ARCH)."
-
-command -v lb >/dev/null 2>&1 || echo "[!] live-build not installed yet (will be installed next)"
+[ "$ARCH" = "amd64" ] || die "Host architecture is $ARCH (expected amd64)."
 pause
 
 # -------------------------------------------------
@@ -53,8 +34,7 @@ sudo apt update
 sudo apt install -y \
   live-build debootstrap squashfs-tools xorriso \
   ca-certificates gnupg git \
-  dpkg-dev fakeroot \
-  minisign || true
+  dpkg-dev fakeroot
 
 if ! groups | grep -q '\bsudo\b'; then
   sudo usermod -aG sudo "$USER"
@@ -70,38 +50,271 @@ pause
 # -------------------------------------------------
 echo "[PHASE 2] PREPARING WORKSPACE"
 WORKDIR="$HOME/sentinel-iso"
-RELEASEDIR="$WORKDIR/release"
-mkdir -p "$WORKDIR" "$RELEASEDIR"
+mkdir -p "$WORKDIR"
 cd "$WORKDIR"
 
 sudo lb clean --purge || true
-sudo rm -rf .build cache config auto || true
+sudo rm -rf .build cache config auto local-packages || true
+mkdir -p local-packages
 pause
 
 # -------------------------------------------------
-# PHASE 3: Sentinel repository bootstrap (Iteration 2)
+# PHASE 3: Build Sentinel policy packages (host-side)
 # -------------------------------------------------
-echo "[PHASE 3] SENTINEL REPOSITORY BOOTSTRAP"
+echo "[PHASE 3] BUILDING SENTINEL POLICY PACKAGES (.deb)"
+build_deb() {
+  local pkg="$1" ver="$2" root="$3"
+  mkdir -p "$root/DEBIAN"
+  fakeroot dpkg-deb --build "$root" "local-packages/${pkg}_${ver}_all.deb" >/dev/null
+}
 
-mkdir -p config/hooks/normal
-cat > config/hooks/normal/010-sentinel-repo.hook.chroot <<EOF
+# sentinel-release: OS identity + apt pinning (minimal)
+rm -rf /tmp/sentinel-release
+mkdir -p /tmp/sentinel-release/{DEBIAN,etc/os-release.d,etc/apt/preferences.d}
+cat > /tmp/sentinel-release/DEBIAN/control <<'EOF'
+Package: sentinel-release
+Version: 1.0.0
+Section: misc
+Priority: optional
+Architecture: all
+Maintainer: Sentinel OS Project
+Description: Sentinel OS identity and repository policy
+EOF
+
+cat > /tmp/sentinel-release/etc/os-release.d/sentinel.conf <<'EOF'
+SENTINEL_OS=1
+SENTINEL_CODENAME=bookworm
+EOF
+
+cat > /tmp/sentinel-release/etc/apt/preferences.d/99-sentinel-pin <<'EOF'
+Package: *
+Pin: release a=stable
+Pin-Priority: 700
+
+Package: *
+Pin: release a=stable-security
+Pin-Priority: 800
+
+Package: *
+Pin: release a=stable-updates
+Pin-Priority: 650
+
+Package: *
+Pin: release a=testing
+Pin-Priority: -10
+
+Package: *
+Pin: release a=unstable
+Pin-Priority: -10
+EOF
+
+build_deb "sentinel-release" "1.0.0" "/tmp/sentinel-release"
+
+# sentinel-firewall: nftables baseline rules + enable service
+rm -rf /tmp/sentinel-firewall
+mkdir -p /tmp/sentinel-firewall/{DEBIAN,etc/nftables.d,etc/systemd/system}
+cat > /tmp/sentinel-firewall/DEBIAN/control <<'EOF'
+Package: sentinel-firewall
+Version: 1.0.0
+Section: admin
+Priority: optional
+Architecture: all
+Maintainer: Sentinel OS Project
+Depends: nftables
+Description: Sentinel OS baseline nftables firewall policy
+EOF
+
+cat > /tmp/sentinel-firewall/etc/nftables.d/sentinel.nft <<'EOF'
+# Sentinel baseline: deny inbound, allow outbound
+table inet sentinel {
+  chain input {
+    type filter hook input priority 0; policy drop;
+
+    ct state established,related accept
+    iif "lo" accept
+
+    ip protocol icmp accept
+    ip6 nexthdr icmpv6 accept
+
+    udp sport 67 udp dport 68 accept
+    udp sport 547 udp dport 546 accept
+
+    limit rate 10/second burst 20 packets log prefix "SENTINEL_DROP_IN: " flags all counter drop
+  }
+
+  chain forward {
+    type filter hook forward priority 0; policy drop;
+  }
+
+  chain output {
+    type filter hook output priority 0; policy accept;
+  }
+}
+EOF
+
+cat > /tmp/sentinel-firewall/etc/systemd/system/sentinel-nftables.service <<'EOF'
+[Unit]
+Description=Sentinel nftables policy
+Wants=network-pre.target
+Before=network-pre.target
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft -f /etc/nftables.conf
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /tmp/sentinel-firewall/DEBIAN/postinst <<'EOF'
 #!/bin/sh
 set -eu
-
-# Install Sentinel keyring (must be present in Debian or preseeded mirror)
-apt-get update
-apt-get install -y ${SENTINEL_KEYRING_PKG}
-
-# Configure Sentinel APT repository
-install -d /etc/apt/sources.list.d
-cat > /etc/apt/sources.list.d/sentinel.list <<SRC
-deb [signed-by=/usr/share/keyrings/sentinel-archive-keyring.gpg] \
-${SENTINEL_REPO_URL} ${SENTINEL_DIST} ${SENTINEL_REPO_COMPONENT}
-SRC
-
-apt-get update
+if [ ! -f /etc/nftables.conf ] || ! grep -q 'table inet sentinel' /etc/nftables.conf 2>/dev/null; then
+  cat >/etc/nftables.conf <<'CONF'
+#!/usr/sbin/nft -f
+flush ruleset
+include "/etc/nftables.d/*.nft"
+CONF
+fi
+systemctl daemon-reload >/dev/null 2>&1 || true
+systemctl enable sentinel-nftables.service >/dev/null 2>&1 || true
 EOF
-chmod +x config/hooks/normal/010-sentinel-repo.hook.chroot
+chmod +x /tmp/sentinel-firewall/DEBIAN/postinst
+
+build_deb "sentinel-firewall" "1.0.0" "/tmp/sentinel-firewall"
+
+# sentinel-hardening: sysctl + apparmor + unattended upgrades + disable noisy services
+rm -rf /tmp/sentinel-hardening
+mkdir -p /tmp/sentinel-hardening/{DEBIAN,etc/sysctl.d,etc/apt/apt.conf.d,etc/systemd/journald.conf.d}
+cat > /tmp/sentinel-hardening/DEBIAN/control <<'EOF'
+Package: sentinel-hardening
+Version: 1.0.0
+Section: admin
+Priority: optional
+Architecture: all
+Maintainer: Sentinel OS Project
+Depends: apparmor, apparmor-utils, unattended-upgrades
+Description: Sentinel OS base hardening policy (conservative)
+EOF
+
+cat > /tmp/sentinel-hardening/etc/sysctl.d/99-sentinel.conf <<'EOF'
+kernel.kptr_restrict=2
+kernel.dmesg_restrict=1
+kernel.yama.ptrace_scope=2
+
+net.ipv4.ip_forward=0
+net.ipv6.conf.all.forwarding=0
+
+net.ipv4.conf.all.accept_redirects=0
+net.ipv6.conf.all.accept_redirects=0
+net.ipv4.conf.all.send_redirects=0
+
+net.ipv4.conf.all.accept_source_route=0
+net.ipv6.conf.all.accept_source_route=0
+EOF
+
+cat > /tmp/sentinel-hardening/etc/apt/apt.conf.d/20auto-upgrades-sentinel <<'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
+
+cat > /tmp/sentinel-hardening/etc/systemd/journald.conf.d/00-sentinel.conf <<'EOF'
+[Journal]
+Storage=persistent
+Compress=yes
+SystemMaxUse=1G
+EOF
+
+cat > /tmp/sentinel-hardening/DEBIAN/postinst <<'EOF'
+#!/bin/sh
+set -eu
+sysctl --system >/dev/null 2>&1 || true
+systemctl enable apparmor.service >/dev/null 2>&1 || true
+systemctl start apparmor.service >/dev/null 2>&1 || true
+systemctl disable --now avahi-daemon.service >/dev/null 2>&1 || true
+systemctl disable --now bluetooth.service >/dev/null 2>&1 || true
+EOF
+chmod +x /tmp/sentinel-hardening/DEBIAN/postinst
+
+build_deb "sentinel-hardening" "1.0.0" "/tmp/sentinel-hardening"
+
+# sentinel-auth: PAM + sudo logging (NEW)
+rm -rf /tmp/sentinel-auth
+mkdir -p /tmp/sentinel-auth/{DEBIAN,usr/share/pam-configs,etc/profile.d,etc/sudoers.d,var/log/sudo-io}
+
+cat > /tmp/sentinel-auth/DEBIAN/control <<'EOF'
+Package: sentinel-auth
+Version: 1.0.0
+Section: admin
+Priority: optional
+Architecture: all
+Maintainer: Sentinel OS Project
+Depends: sudo, libpam-modules, libpam-runtime, libpam-pwquality
+Description: Sentinel OS authentication hardening (PAM + sudo logging)
+EOF
+
+cat > /tmp/sentinel-auth/usr/share/pam-configs/sentinel-faillock <<'EOF'
+Name: Sentinel faillock (account lockout)
+Default: yes
+Priority: 950
+Auth-Type: Primary
+Auth:
+    [default=die] pam_faillock.so preauth silent deny=5 unlock_time=900 fail_interval=900
+    [success=1 default=bad] pam_unix.so nullok try_first_pass
+    [default=die] pam_faillock.so authfail deny=5 unlock_time=900 fail_interval=900
+Account-Type: Primary
+Account:
+    required pam_faillock.so
+EOF
+
+cat > /tmp/sentinel-auth/usr/share/pam-configs/sentinel-pwquality <<'EOF'
+Name: Sentinel pwquality (password strength)
+Default: yes
+Priority: 940
+Password-Type: Primary
+Password:
+    requisite pam_pwquality.so retry=3 minlen=14 ucredit=-1 lcredit=-1 dcredit=-1 ocredit=-1 difok=4 maxrepeat=3 gecoscheck=1
+    [success=1 default=ignore] pam_unix.so obscure use_authtok try_first_pass yescrypt
+EOF
+
+cat > /tmp/sentinel-auth/usr/share/pam-configs/sentinel-umask <<'EOF'
+Name: Sentinel umask (027)
+Default: yes
+Priority: 930
+Session-Type: Additional
+Session:
+    optional pam_umask.so umask=027
+EOF
+
+cat > /tmp/sentinel-auth/etc/profile.d/00-sentinel-umask.sh <<'EOF'
+umask 027
+EOF
+
+cat > /tmp/sentinel-auth/etc/sudoers.d/90-sentinel-logging <<'EOF'
+Defaults        logfile="/var/log/sudo.log"
+Defaults        loglinelen=0
+Defaults        iolog_dir="/var/log/sudo-io"
+Defaults        iolog_file="%{seq}"
+Defaults        log_output
+EOF
+chmod 0440 /tmp/sentinel-auth/etc/sudoers.d/90-sentinel-logging
+
+cat > /tmp/sentinel-auth/DEBIAN/postinst <<'EOF'
+#!/bin/sh
+set -eu
+install -d -m 0700 /var/log/sudo-io || true
+touch /var/log/sudo.log || true
+chmod 0600 /var/log/sudo.log || true
+if command -v pam-auth-update >/dev/null 2>&1; then
+  pam-auth-update --force >/dev/null 2>&1 || true
+fi
+EOF
+chmod +x /tmp/sentinel-auth/DEBIAN/postinst
+
+build_deb "sentinel-auth" "1.0.0" "/tmp/sentinel-auth"
+
 pause
 
 # -------------------------------------------------
@@ -110,8 +323,8 @@ pause
 echo "[PHASE 4] CONFIGURING LIVE-BUILD"
 
 sudo lb config \
-  --distribution "$SENTINEL_DIST" \
-  --architectures "$SENTINEL_ARCH" \
+  --distribution bookworm \
+  --architectures amd64 \
   --binary-images iso-hybrid \
   --bootloaders "grub-pc grub-efi" \
   --linux-flavours amd64 \
@@ -120,7 +333,7 @@ sudo lb config \
   --debian-installer-gui true \
   --archive-areas "main contrib non-free non-free-firmware" \
   --bootappend-live "boot=live components quiet splash live-media-path=/live" \
-  --iso-volume "Sentinel OS v${SENTINEL_VERSION}" \
+  --iso-volume "Sentinel OS v1" \
   --iso-application "Sentinel OS" \
   --iso-publisher "Sentinel OS Project" \
   --apt-recommends false
@@ -128,22 +341,33 @@ sudo lb config \
 sudo chown -R "$USER:$USER" config
 pause
 
-# -------------------------------------------------
-# PHASE 4.1: Filesystem + branding scaffolding
-# -------------------------------------------------
-echo "[PHASE 4.1] FILESYSTEM + BRANDING"
-mkdir -p \
-  config/includes.chroot/usr/share/backgrounds/sentinel \
-  config/includes.chroot/usr/share/icons/sentinel \
-  config/includes.chroot/usr/share/themes/sentinel \
-  config/includes.chroot/etc/dconf/db/local.d \
-  config/includes.chroot/etc/dconf/profile
+echo "[PHASE 4.1] APT + DESKTOP FILESYSTEM SETUP"
+
+mkdir -p config/archives
+mkdir -p config/includes.chroot/etc/apt/apt.conf.d
+
+mkdir -p config/includes.chroot/usr/share/backgrounds/sentinel
+mkdir -p config/includes.chroot/usr/share/icons/sentinel
+mkdir -p config/includes.chroot/usr/share/themes/sentinel
+
+mkdir -p config/includes.chroot/etc/skel/.config/mate/desktop/background
+mkdir -p config/includes.chroot/etc/skel/.config/mate/interface
+mkdir -p config/includes.chroot/etc/dconf/db/local.d
+mkdir -p config/includes.chroot/etc/dconf/profile
 pause
 
 # -------------------------------------------------
-# PHASE 5: Package lists (Iteration 2 compliant)
+# PHASE 5: Include local Sentinel packages
 # -------------------------------------------------
-echo "[PHASE 5] PACKAGE LISTS (REPO-BASED)"
+echo "[PHASE 5] ADDING LOCAL SENTINEL PACKAGES"
+mkdir -p config/packages.chroot
+cp -f local-packages/*.deb config/packages.chroot/
+pause
+
+# -------------------------------------------------
+# PHASE 6: Package lists (BASE only; keep minimal)
+# -------------------------------------------------
+echo "[PHASE 6] PACKAGE LISTS (BASE MINIMAL)"
 mkdir -p config/package-lists
 
 cat > config/package-lists/10-desktop-mate-base.list.chroot <<'EOF'
@@ -176,6 +400,7 @@ xorg
 xserver-xorg-core
 xserver-xorg-input-all
 xserver-xorg-video-all
+
 apparmor
 apparmor-utils
 apparmor-profiles
@@ -184,17 +409,23 @@ chrony
 needrestart
 nftables
 
-# Sentinel policy packages (from Sentinel repo)
+# PAM deps (explicit; sentinel-auth also depends)
+libpam-pwquality
+libpam-modules
+libpam-runtime
+
+# Sentinel policy packages (local .deb)
 sentinel-release
 sentinel-hardening
 sentinel-firewall
+sentinel-auth
 EOF
 pause
 
 # -------------------------------------------------
-# PHASE 6: Live user policy
+# PHASE 7: Live user policy (convenience-only, non-admin, no password)
 # -------------------------------------------------
-echo "[PHASE 6] LIVE USER POLICY"
+echo "[PHASE 7] LIVE USER + LIGHTDM (LIVE ONLY)"
 
 mkdir -p config/includes.chroot/etc/live
 cat > config/includes.chroot/etc/live/config.conf <<'EOF'
@@ -205,6 +436,12 @@ LIVE_USER_PASSWORD=""
 EOF
 
 mkdir -p config/includes.chroot/etc/lightdm/lightdm.conf.d
+cat > config/includes.chroot/etc/lightdm/lightdm.conf.d/50-sentinel.conf <<'EOF'
+[Seat:*]
+greeter-session=lightdm-gtk-greeter
+user-session=mate
+EOF
+
 cat > config/includes.chroot/etc/lightdm/lightdm.conf.d/60-sentinel-live-autologin.conf <<'EOF'
 [Seat:*]
 autologin-user=user
@@ -217,7 +454,9 @@ cat > config/includes.chroot/usr/local/sbin/sentinel-live-guard.sh <<'EOF'
 set -eu
 if ! grep -q 'boot=live' /proc/cmdline 2>/dev/null; then
   rm -f /etc/lightdm/lightdm.conf.d/60-sentinel-live-autologin.conf
-else
+  exit 0
+fi
+if id user >/dev/null 2>&1; then
   passwd -l user >/dev/null 2>&1 || true
 fi
 EOF
@@ -226,7 +465,9 @@ chmod +x config/includes.chroot/usr/local/sbin/sentinel-live-guard.sh
 mkdir -p config/includes.chroot/etc/systemd/system
 cat > config/includes.chroot/etc/systemd/system/sentinel-live-guard.service <<'EOF'
 [Unit]
-Description=Sentinel Live Guard
+Description=Sentinel Live Guard (autologin + live user lock)
+DefaultDependencies=no
+After=local-fs.target
 Before=display-manager.service
 
 [Service]
@@ -239,14 +480,17 @@ EOF
 pause
 
 # -------------------------------------------------
-# PHASE 7: Live warning banner
+# PHASE 8: Visible Live warning banner (dconf default)
 # -------------------------------------------------
-echo "[PHASE 7] LIVE WARNING BANNER"
+echo "[PHASE 8] LIVE WARNING BANNER (DESKTOP)"
+
+mkdir -p config/includes.chroot/etc/dconf/profile
 cat > config/includes.chroot/etc/dconf/profile/user <<'EOF'
 user-db:user
 system-db:local
 EOF
 
+mkdir -p config/includes.chroot/etc/dconf/db/local.d
 cat > config/includes.chroot/etc/dconf/db/local.d/00-sentinel-live-warning <<'EOF'
 [org/mate/panel/objects/clock]
 format='SENTINEL LIVE – NOT A SECURE INSTALL | %a %d %b %H:%M'
@@ -254,54 +498,37 @@ EOF
 pause
 
 # -------------------------------------------------
-# PHASE 8: Enable services
+# PHASE 9: Enable services (via systemctl in hook; owned by packages where possible)
 # -------------------------------------------------
-echo "[PHASE 8] ENABLE SERVICES"
+echo "[PHASE 9] ENABLE SERVICES (CHROOT HOOK)"
 mkdir -p config/hooks/normal
 cat > config/hooks/normal/090-enable-sentinel.hook.chroot <<'EOF'
 #!/bin/sh
 set -eu
-systemctl enable sentinel-live-guard.service || true
-systemctl enable sentinel-nftables.service || true
-systemctl enable apparmor.service || true
-systemctl enable unattended-upgrades.service || true
-dconf update || true
+systemctl enable sentinel-live-guard.service >/dev/null 2>&1 || true
+systemctl enable sentinel-nftables.service >/dev/null 2>&1 || true
+systemctl enable apparmor.service >/dev/null 2>&1 || true
+systemctl enable unattended-upgrades.service >/dev/null 2>&1 || true
+if command -v dconf >/dev/null 2>&1; then
+  dconf update >/dev/null 2>&1 || true
+fi
 EOF
 chmod +x config/hooks/normal/090-enable-sentinel.hook.chroot
 pause
 
 # -------------------------------------------------
-# PHASE 9: Build ISO
+# PHASE 10: Build ISO
 # -------------------------------------------------
-echo "[PHASE 9] BUILDING ISO"
+echo "[PHASE 10] BUILDING ISO"
 sudo lb clean --purge
 sudo lb build 2>&1 | tee "$WORKDIR/build.log"
 
-ISO="$(ls *.iso | head -n1)"
-[ -n "$ISO" ] || die "ISO not produced"
+ISO_FOUND="$(ls -1 *.iso 2>/dev/null | head -n1 || true)"
+[ -n "$ISO_FOUND" ] || die "No ISO produced."
 
-FINAL_ISO="Sentinel-OS-v${SENTINEL_VERSION}-${SENTINEL_DIST}-${SENTINEL_ARCH}.iso"
-mv "$ISO" "$FINAL_ISO"
-sha256sum "$FINAL_ISO" > "$FINAL_ISO.sha256"
+ISO_DST="Sentinel-OS-v1.0.0-bookworm-amd64.iso"
+mv "$ISO_FOUND" "$ISO_DST"
+sha256sum "$ISO_DST" > "$ISO_DST.sha256"
 
-# -------------------------------------------------
-# PHASE 10: Release artifacts (Iteration 3)
-# -------------------------------------------------
-echo "[PHASE 10] RELEASE ARTIFACTS"
-
-cp "$FINAL_ISO"* "$RELEASEDIR/"
-
-{
-  echo "sentinel_version=${SENTINEL_VERSION}"
-  echo "build_date_utc=$(date -u +%FT%TZ)"
-  echo "debian_release=${SENTINEL_DIST}"
-  echo "architecture=${SENTINEL_ARCH}"
-} > "$RELEASEDIR/build-info.txt"
-
-if command -v minisign >/dev/null 2>&1; then
-  minisign -Sm "$RELEASEDIR/$FINAL_ISO"
-  minisign -Sm "$RELEASEDIR/$FINAL_ISO.sha256"
-fi
-
-echo "[+] Release complete:"
-ls -lh "$RELEASEDIR"
+echo "[+] Built:"
+ls -lh "$ISO_DST" "$ISO_DST.sha256"
