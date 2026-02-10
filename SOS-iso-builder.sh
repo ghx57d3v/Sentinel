@@ -66,7 +66,7 @@ sudo lb config \
   --distribution bookworm \
   --architectures amd64 \
   --binary-images iso-hybrid \
-  --bootloader grub-efi \
+  --bootloaders "grub-efi grub-pc" \
   --debian-installer live \
   --debian-installer-gui true \
   --archive-areas "main contrib non-free non-free-firmware" \
@@ -308,8 +308,9 @@ pause
 # PHASE 10: Build ISO
 # -------------------------------------------------
 echo "[PHASE 10] BUILDING ISO"
+sudo lb clean --purge
+sudo lb config
 sudo lb build 2>&1 | tee "$WORKDIR/build.log"
-
 ISO_FOUND="$(ls -1 *.iso 2>/dev/null | head -n1 || true)"
 [ -n "$ISO_FOUND" ] || die "No ISO produced."
 
