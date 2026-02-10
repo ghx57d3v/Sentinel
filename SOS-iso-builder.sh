@@ -276,7 +276,6 @@ echo "[PHASE 4] BUILDING ISO"
 
 sudo lb config \
   --distribution bookworm \
-  --bootstrap-distribution bookworm \
   --debian-installer live \
   --debian-installer-distribution bookworm \
   --architectures amd64 \
@@ -285,11 +284,14 @@ sudo lb config \
   --linux-flavours amd64 \
   --linux-packages "linux-image" \
   --archive-areas "main contrib non-free non-free-firmware" \
+  --mirror-bootstrap http://deb.debian.org/debian/ \
+  --mirror-chroot-security http://security.debian.org/ \
   --bootappend-live "boot=live components quiet splash live-media-path=/live" \
   --iso-volume "Sentinel OS v1" \
   --iso-application "Sentinel OS" \
   --iso-publisher "Sentinel OS Project" \
   --apt-recommends false
+
   
 sudo lb clean --purge
 sudo lb build 2>&1 | tee "$WORKDIR/build.log"
