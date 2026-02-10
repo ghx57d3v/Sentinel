@@ -294,10 +294,10 @@ sudo lb config \
   --iso-publisher "Sentinel OS Project" \
   --apt-recommends false
 
-mkdir -p config/installer
+sudo mkdir -p config/installer
 echo bookworm > config/installer/distribution
 
-mkdir -p config/package-lists
+sudo mkdir -p config/package-lists
 cat > config/package-lists/00-installer.list.binary <<EOF
 debian-installer-launcher
 EOF
