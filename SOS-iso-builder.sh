@@ -270,9 +270,27 @@ umask 027
 EOF
 
 # -------------------------------------------------
-# PHASE 10: Build ISO
+# PHASE 4: Build ISO
 # -------------------------------------------------
-echo "[PHASE 10] BUILDING ISO"
+echo "[PHASE 4] BUILDING ISO"
+
+sudo lb config \
+  --distribution bookworm \
+  --bootstrap-distribution bookworm \
+  --debian-installer live \
+  --debian-installer-distribution bookworm \
+  --architectures amd64 \
+  --binary-images iso-hybrid \
+  --bootloaders "grub-pc grub-efi" \
+  --linux-flavours amd64 \
+  --linux-packages "linux-image" \
+  --archive-areas "main contrib non-free non-free-firmware" \
+  --bootappend-live "boot=live components quiet splash live-media-path=/live" \
+  --iso-volume "Sentinel OS v1" \
+  --iso-application "Sentinel OS" \
+  --iso-publisher "Sentinel OS Project" \
+  --apt-recommends false
+  
 sudo lb clean --purge
 sudo lb build 2>&1 | tee "$WORKDIR/build.log"
 
