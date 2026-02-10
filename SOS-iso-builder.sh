@@ -287,7 +287,7 @@ debian-installer-launcher
 EOF
 
 # ---- CONFIGURE LIVE-BUILD ----
-lb config \
+sudo lb config \
   --distribution bookworm \
   --architectures amd64 \
   --binary-images iso-hybrid \
@@ -308,7 +308,7 @@ lb config \
   --apt-recommends false
 
 # ---- BUILD ----
-lb build 2>&1 | tee "$WORKDIR/build.log"
+sudo lb build 2>&1 | tee "$WORKDIR/build.log"
 
 ISO_FOUND="$(ls -1 *.iso 2>/dev/null | head -n1 || true)"
 [ -n "$ISO_FOUND" ] || die "No ISO produced."
