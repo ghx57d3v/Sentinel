@@ -314,7 +314,7 @@ sudo lb build 2>&1 | tee "$WORKDIR/build.log"
 ISO_FOUND="$(ls -1 *.iso 2>/dev/null | head -n1 || true)"
 [ -n "$ISO_FOUND" ] || die "No ISO produced."
 
-ISO_DST="Sentinel-OS-v0.5-amd64.iso"
+ISO_DST="Sentinel-OS-v1.0.1-amd64.iso"
 mv "$ISO_FOUND" "$ISO_DST"
 sha256sum "$ISO_DST" > "$ISO_DST.sha256"
 
