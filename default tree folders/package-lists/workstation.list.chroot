@@ -1,0 +1,8 @@
+mate-desktop-environment
+lightdm
+xorg
+network-manager
+network-manager-gnome
+sudo
+ca-certificates
+
