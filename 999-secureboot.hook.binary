@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -e
+
+echo "[*] SentinelOS Secure Boot: Signing EFI binaries..."
+
+mkdir -p secureboot/keys
+
+if [ ! -f secureboot/keys/db.key ]; then
+    echo "[*] Generating Sentinel Secure Boot keys..."
+
+    openssl req -new -x509 -newkey rsa:4096         -subj "/CN=SentinelOS Secure Boot db/"         -keyout secureboot/keys/db.key         -out secureboot/keys/db.crt         -days 3650 -nodes
+fi
+
+GRUB_EFI=$(find binary -name "grubx64.efi" | head -n1)
+KERNEL_IMG=$(find binary -name "vmlinuz*" | head -n1)
+
+if [ -f "$GRUB_EFI" ]; then
+    sbsign         --key secureboot/keys/db.key         --cert secureboot/keys/db.crt         --output ${GRUB_EFI}.signed         "$GRUB_EFI"
+
+    mv ${GRUB_EFI}.signed "$GRUB_EFI"
+fi
+
+if [ -f "$KERNEL_IMG" ]; then
+    sbsign         --key secureboot/keys/db.key         --cert secureboot/keys/db.crt         --output ${KERNEL_IMG}.signed         "$KERNEL_IMG"
+
+    mv ${KERNEL_IMG}.signed "$KERNEL_IMG"
+fi
+
+echo "[+] EFI binaries signed with Sentinel key."
