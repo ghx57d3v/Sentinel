@@ -1,387 +1,292 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-########################################
-# SentinelOS Core Build Script
-# Debian 12 Bookworm
-########################################
+############################################
+# SentinelOS v1.0
+# Sentinel Standard Production Builder
+############################################
 
-VERSION="1.0"
-EDITION="AMBROSO"
-ARCH="amd64"
 DIST="bookworm"
+ARCH="amd64"
+LIVE_USER="sentinel"
+VERSION="1.0"
+ISO_NAME="SentinelOS_${VERSION}_${ARCH}"
+BUILD_DATE="$(date -u +%Y-%m-%d)"
+GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo 'nogit')"
 
-ISO_NAME="SentinelOS-${VERSION}-${EDITION}-${ARCH}.iso"
+echo "=============================================="
+echo " SentinelOS Sentinel Standard Build"
+echo "=============================================="
+echo "Version    : ${VERSION}"
+echo "Commit     : ${GIT_COMMIT}"
+echo "Build Date : ${BUILD_DATE}"
+echo ""
 
-echo "[*] Cleaning previous build..."
-lb clean || true
-rm -rf config
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Run as root."
+    exit 1
+fi
 
-echo "[*] Configuring live-build..."
+export SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct 2>/dev/null || date +%s)"
+export LC_ALL=C
+export TZ=UTC
 
-lb config \
-  --distribution ${DIST} \
-  --architectures ${ARCH} \
-  --binary-images iso-hybrid \
-  --debian-installer live \
-  --archive-areas "main contrib non-free non-free-firmware" \
-  --bootappend-live "boot=live components quiet splash"
+############################################
+# Clean
+############################################
 
-########################################
-# PACKAGE LIST
-########################################
+lb clean --purge || true
+rm -rf config secureboot
+
+############################################
+# Secure Boot Keys
+############################################
+
+mkdir -p secureboot
+
+for key in PK KEK db; do
+openssl req -new -x509 -newkey rsa:4096 -nodes \
+  -keyout secureboot/${key}.key \
+  -out secureboot/${key}.crt \
+  -subj "/CN=SentinelOS ${key}/" -days 3650
+
+openssl x509 -outform DER \
+  -in secureboot/${key}.crt \
+  -out secureboot/${key}.cer
+
+sign-efi-sig-list -k secureboot/${key}.key \
+  -c secureboot/${key}.crt \
+  ${key} secureboot/${key}.cer \
+  secureboot/${key}.auth || true
+done
+
+############################################
+# Directory Structure
+############################################
 
 mkdir -p config/package-lists
+mkdir -p config/includes.chroot/etc/{skel,lightdm,sysctl.d,systemd/system,xdg/gtk-3.0}
+mkdir -p config/includes.chroot/usr/local/{sbin,bin}
+mkdir -p config/includes.chroot/usr/share/{themes/Sentinel-Dark,grub/themes/sentinelos,plymouth/themes/sentinelos}
+mkdir -p config/hooks/{normal,binary}
 
-cat <<EOF > config/package-lists/sentinelos-core.list.chroot
-mate-desktop-environment-core
+############################################
+# Package List
+############################################
+
+cat > config/package-lists/sentinelos-core.list.chroot <<EOF
+live-boot
+live-config
+mate-desktop-environment
 lightdm
 lightdm-gtk-greeter
-gnome-disk-utility
-gimp
-inkscape
-geany
 firefox-esr
-libreoffice
 git
 gnupg
-kleopatra
-veracrypt
-pidgin
-nftables
 apparmor
 apparmor-utils
-auditd
-aide
-unattended-upgrades
-fail2ban
-plymouth
-grub-pc
-mat2
-exiftool
+sbsigntool
 tpm2-tools
-tpm2-abrmd
-clevis
+openssl
+efitools
+grub-efi-amd64-signed
+shim-signed
+plymouth
 EOF
 
-cat <<EOF > config/includes.chroot/usr/share/themes/Sentinel-Dark/gtk-3.0/settings.ini
+############################################
+# Kernel Hardening Hook
+############################################
+
+cat > config/hooks/normal/0500-sentinel-hardening.hook.chroot <<'EOF'
+#!/usr/bin/env bash
+set -e
+
+PARAMS="kernel.lockdown=integrity ima_policy=tcb ima_hash=sha256 lsm=lockdown,yama,apparmor apparmor=1 security=apparmor slab_nomerge init_on_alloc=1 init_on_free=1 page_alloc.shuffle=1 randomize_kstack_offset=on pti=on"
+
+if ! grep -q "kernel.lockdown=" /etc/default/grub; then
+    sed -i "s/^GRUB_CMDLINE_LINUX_DEFAULT=\"/&${PARAMS} /" /etc/default/grub
+fi
+
+systemctl enable apparmor || true
+systemctl enable sentinelos-tpm-log.service || true
+
+update-grub || true
+update-initramfs -u
+EOF
+
+chmod +x config/hooks/normal/0500-sentinel-hardening.hook.chroot
+
+############################################
+# Sysctl Hardening
+############################################
+
+cat > config/includes.chroot/etc/sysctl.d/99-sentinel.conf <<EOF
+kernel.kptr_restrict = 2
+kernel.dmesg_restrict = 1
+kernel.unprivileged_bpf_disabled = 1
+kernel.unprivileged_userns_clone = 0
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.tcp_syncookies = 1
+EOF
+
+############################################
+# TPM Logging Service
+############################################
+
+cat > config/includes.chroot/etc/systemd/system/sentinelos-tpm-log.service <<'EOF'
+[Unit]
+Description=SentinelOS TPM Boot Measurement Log
+ConditionPathExists=/dev/tpm0
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '/usr/bin/tpm2_pcrread sha256:0,1,2,3,4,5,6,7 > /var/log/tpm-pcr.log 2>/dev/null'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+############################################
+# Kernel Resign Automation
+############################################
+
+cat > config/includes.chroot/usr/local/sbin/sentinelos-kernel-resign <<'EOF'
+#!/usr/bin/env bash
+KEY_DIR="/root/secureboot-keys"
+CERT="${KEY_DIR}/db.crt"
+KEY="${KEY_DIR}/db.key"
+
+[ -f "$CERT" ] || exit 0
+[ -f "$KEY" ] || exit 0
+
+for kernel in /boot/vmlinuz-*; do
+    sbverify --cert "$CERT" "$kernel" >/dev/null 2>&1 || \
+    sbsign --key "$KEY" --cert "$CERT" --output "${kernel}.signed" "$kernel" && \
+    mv "${kernel}.signed" "$kernel"
+done
+EOF
+
+chmod +x config/includes.chroot/usr/local/sbin/sentinelos-kernel-resign
+
+############################################
+# GTK Theme
+############################################
+
+GTK_DIR="config/includes.chroot/usr/share/themes/Sentinel-Dark"
+mkdir -p ${GTK_DIR}/gtk-3.0
+
+cat > ${GTK_DIR}/gtk-3.0/gtk.css <<'EOF'
+window {
+    background-color: #0f1115;
+    color: #e6e6e6;
+}
+button {
+    background-color: #1a1d23;
+    border-radius: 6px;
+    border: 1px solid #00ffaa;
+    color: #00ffaa;
+}
+button:hover {
+    background-color: #00ffaa;
+    color: #0f1115;
+}
+EOF
+
+cat > ${GTK_DIR}/index.theme <<EOF
+[Desktop Entry]
+Name=Sentinel-Dark
+Type=GTK
+EOF
+
+cat > config/includes.chroot/etc/xdg/gtk-3.0/settings.ini <<EOF
 [Settings]
+gtk-theme-name=Sentinel-Dark
 gtk-application-prefer-dark-theme=1
 EOF
 
-########################################
-# BRANDING STRUCTURE
-########################################
+############################################
+# GRUB Theme
+############################################
 
-mkdir -p config/includes.chroot/etc/lightdm
-mkdir -p config/includes.chroot/etc/dconf/db/local.d
-mkdir -p config/includes.chroot/etc/skel
-mkdir -p config/includes.chroot/usr/share/backgrounds/sentinelos
-mkdir -p config/includes.chroot/usr/share/grub/themes/sentinelos
-mkdir -p config/includes.chroot/usr/share/plymouth/themes/sentinelos
-mkdir -p config/includes.chroot/etc/sysctl.d
-mkdir -p config/hooks/normal
+GRUB_DIR="config/includes.chroot/usr/share/grub/themes/sentinelos"
 
-########################################
-# OS RELEASE
-########################################
-
-cat <<EOF > config/includes.chroot/etc/os-release
-NAME="SentinelOS"
-VERSION="${VERSION} AMBROSO"
-ID=sentinelos
-ID_LIKE=debian
-PRETTY_NAME="SentinelOS ${VERSION} Core"
-VERSION_ID="${VERSION}"
-HOME_URL="https://sentinel.local"
-SUPPORT_URL="https://sentinel.local/support"
-BUG_REPORT_URL="https://sentinel.local/issues"
-EOF
-
-########################################
-# LIGHTDM CONFIG
-########################################
-
-cat <<EOF > config/includes.chroot/etc/lightdm/lightdm.conf
-[Seat:*]
-greeter-session=lightdm-gtk-greeter
-user-session=mate
-EOF
-
-cat <<EOF > config/includes.chroot/etc/lightdm/lightdm-gtk-greeter.conf
-[greeter]
-background=/usr/share/backgrounds/sentinelos/default.jpg
-theme-name=Adwaita-dark
-icon-theme-name=Adwaita
-font-name=Sans 11
-EOF
-
-########################################
-# TERMINAL PROMPT
-########################################
-
-cat <<'EOF' >> config/includes.chroot/etc/skel/.bashrc
-
-# SentinelOS Gold Prompt
-PS1='\[\e[38;5;220m\]\u\[\e[0m\]@\h:\w\$ '
-EOF
-
-########################################
-# DCONF (MATE)
-########################################
-
-cat <<EOF > config/includes.chroot/etc/dconf/db/local.d/01-sentinelos
-[org/mate/desktop/background]
-picture-filename='/usr/share/backgrounds/sentinelos/default.jpg'
-picture-options='zoom'
-
-[org/mate/interface]
-gtk-theme='Sentinel-Dark'
-icon-theme='Adwaita'
-EOF
-
-########################################
-# SECURITY BASELINE
-########################################
-
-cat <<EOF > config/includes.chroot/etc/sysctl.d/99-sentinelos.conf
-kernel.kptr_restrict=2
-kernel.dmesg_restrict=1
-net.ipv4.conf.all.rp_filter=1
-net.ipv4.icmp_echo_ignore_broadcasts=1
-net.ipv4.conf.all.accept_source_route=0
-net.ipv4.conf.all.accept_redirects=0
-EOF
-
-########################################
-# GRUB THEME
-########################################
-
-cat <<EOF > config/includes.chroot/usr/share/grub/themes/sentinelos/theme.txt
-+ desktop-image {
-    file = "background.png"
-}
-
-+ image {
-    top = 18%
-    left = 50%
-    width = 220
-    height = 220
-    file = "logo.png"
-}
-
-+ label {
-    top = 10%
-    left = 0
-    width = 100%
-    align = "center"
-    text = "SentinelOS ${VERSION} AMBROSO"
-    font = "DejaVu Sans Bold 28"
-    color = "#F2C200"
-}
-
+cat > ${GRUB_DIR}/theme.txt <<EOF
+title-text: "SentinelOS"
+title-font: "DejaVu Sans 32"
+desktop-image: "background.png"
 + boot_menu {
-    left = 30%
-    top = 50%
-    width = 40%
+    left = 25%
+    width = 50%
+    top = 40%
     height = 30%
-    item_font = "DejaVu Sans Regular 18"
+    item_font = "DejaVu Sans 18"
     item_color = "#CCCCCC"
-    selected_item_color = "#000000"
-    selected_item_pixmap_style = "select_box"
-    item_height = 38
-    item_padding = 10
-    item_spacing = 8
-}
-
-+ pixmap_style select_box {
-    background_color = "#F2C200"
-    border_color = "#D6AD00"
-    border_width = 2
-}
-
-+ label {
-    bottom = 2%
-    left = 0
-    width = 100%
-    align = "center"
-    text = "Secure Boot Verified"
-    font = "DejaVu Sans Regular 14"
-    color = "#888888"
+    selected_item_color = "#00ffaa"
 }
 EOF
 
-########################################
-# PLYMOUTH THEME
-########################################
+touch ${GRUB_DIR}/background.png.txt
+touch ${GRUB_DIR}/logo.png.txt
 
-cat <<EOF > config/includes.chroot/usr/share/plymouth/themes/sentinelos/sentinelos.plymouth
+############################################
+# Plymouth Animated Theme
+############################################
+
+PLY_DIR="config/includes.chroot/usr/share/plymouth/themes/sentinelos"
+
+cat > ${PLY_DIR}/sentinelos.plymouth <<EOF
 [Plymouth Theme]
 Name=SentinelOS
-Description=SentinelOS Secure Boot Splash
 ModuleName=script
-
 [script]
 ImageDir=/usr/share/plymouth/themes/sentinelos
 ScriptFile=/usr/share/plymouth/themes/sentinelos/sentinelos.script
 EOF
 
-cat <<'EOF' > config/includes.chroot/usr/share/plymouth/themes/sentinelos/sentinelos.script
-Window.SetBackgroundTopColor (0.06, 0.06, 0.06);
-Window.SetBackgroundBottomColor (0.12, 0.12, 0.12);
-
+cat > ${PLY_DIR}/sentinelos.script <<'EOF'
+screen_width = Window.GetWidth();
+screen_height = Window.GetHeight();
 logo = Image("logo.png");
-logo_sprite = Sprite(logo);
-
-logo_sprite.SetX(Window.GetWidth()/2 - logo.GetWidth()/2);
-logo_sprite.SetY(Window.GetHeight()/2 - logo.GetHeight()/2 - 60);
-logo_sprite.SetOpacity(0.0);
-
-progress_width  = 400;
-progress_height = 4;
-
-progress_x = Window.GetWidth()/2 - progress_width/2;
-progress_y = Window.GetHeight()/2 + 120;
-
-progress_bg = Rectangle(progress_width, progress_height);
-progress_bg.SetPosition(progress_x, progress_y);
-progress_bg.SetColor(0.25, 0.25, 0.25);
-
-progress_fill = Rectangle(progress_width, progress_height);
-progress_fill.SetPosition(progress_x, progress_y);
-progress_fill.SetColor(0.95, 0.76, 0.0);
-progress_fill.SetWidth(0);
-
-bg_sprite = Sprite(progress_bg);
-fill_sprite = Sprite(progress_fill);
-fill_sprite.SetOpacity(0.0);
-
-fade_step = 0.02;
-current_opacity = 0.0;
-
-function animate_callback () {
-    if (current_opacity < 1.0) {
-        current_opacity += fade_step;
-        logo_sprite.SetOpacity(current_opacity);
-        fill_sprite.SetOpacity(current_opacity);
-    }
+sprite = Sprite(logo);
+sprite.SetPosition(screen_width/2, screen_height/2, 0);
+opacity = 0;
+fun animate() {
+  if (opacity < 1) { opacity += 0.02; sprite.SetOpacity(opacity); }
+  Window.Refresh();
 }
-
-function update_callback (progress_value) {
-    progress_fill.SetWidth(progress_width * progress_value);
-}
-
-Plymouth.SetRefreshFunction(animate_callback);
-Plymouth.SetUpdateFunction(update_callback);
+Plymouth.SetRefreshFunction(animate);
 EOF
 
+touch ${PLY_DIR}/background.png.txt
+touch ${PLY_DIR}/logo.png.txt
 
-########################################
-# CUSTOM GTK THEME
-########################################
+############################################
+# Configure live-build
+############################################
 
-mkdir -p config/includes.chroot/usr/share/themes/Sentinel-Dark/gtk-3.0
+lb config \
+  --distribution "$DIST" \
+  --architectures "$ARCH" \
+  --archive-areas "main contrib non-free non-free-firmware" \
+  --binary-images iso-hybrid \
+  --bootappend-live "boot=live components splash username=${LIVE_USER}" \
+  --debian-installer live \
+  --iso-application "SentinelOS" \
+  --iso-volume "SENTINELOS_${VERSION}"
 
-cat <<'EOF' > config/includes.chroot/usr/share/themes/Sentinel-Dark/gtk-3.0/gtk.css
-@define-color sentinel_bg #2E2E2E;
-@define-color sentinel_panel #3A3A3A;
-@define-color sentinel_gold #F2C200;
-@define-color sentinel_gold_dark #D6AD00;
-@define-color sentinel_text #EAEAEA;
+############################################
+# Build ISO
+############################################
 
-window {
-    background-color: @sentinel_bg;
-    color: @sentinel_text;
-}
-
-button {
-    background-color: @sentinel_panel;
-    border-radius: 4px;
-    border: 1px solid #444;
-}
-
-button:hover {
-    background-color: @sentinel_gold_dark;
-    color: #000000;
-}
-
-button:checked,
-button:active {
-    background-color: @sentinel_gold;
-    color: #000000;
-}
-
-selection {
-    background-color: @sentinel_gold;
-    color: #000000;
-}
-
-entry {
-    background-color: #1E1E1E;
-    border: 1px solid #444;
-}
-
-headerbar {
-    background-color: @sentinel_panel;
-    border-bottom: 1px solid #444;
-}
-EOF
-
-########################################
-# BRANDING HOOK (SECURE BOOT SAFE)
-########################################
-
-# Inject secure kernel parameters
-sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT="/&kernel.lockdown=integrity ima_policy=tcb ima_hash=sha256 /' /etc/default/grub
-
-# TPM Logging Service
-cat <<SERVICE > /etc/systemd/system/sentinelos-tpm-log.service
-[Unit]
-Description=SentinelOS TPM Boot Measurement Log
-After=multi-user.target
-
-[Service]
-Type=oneshot
-ExecStart=/bin/sh -c '/usr/bin/tpm2_pcrread sha256:0,1,2,3,4,5,6,7 > /var/log/tpm-pcr.log'
-
-[Install]
-WantedBy=multi-user.target
-SERVICE
-
-systemctl enable sentinelos-tpm-log.service
-
-update-grub || true
-
-chmod +x config/hooks/normal/010-branding.hook.chroot
-
-########################################
-# BUILD METADATA
-########################################
-
-mkdir -p config/includes.chroot/etc/sentinelos
-
-cat <<EOF > config/includes.chroot/etc/sentinelos/build-info
-SentinelOS ${VERSION} AMBROSO
-Architecture: ${ARCH}
-Build-Date: $(date -u)
-Secure-Boot: Supported
-Kernel-Lockdown: integrity
-EOF
-
-########################################
-# BUILD ISO
-########################################
-
-echo "[*] Building ISO..."
 lb build
+mv live-image-amd64.hybrid.iso "${ISO_NAME}.iso"
 
-mv live-image-${ARCH}.hybrid.iso ${ISO_NAME}
+sha256sum "${ISO_NAME}.iso" > "${ISO_NAME}.sha256"
 
-echo "[+] Build complete: ${ISO_NAME}"
-
-echo "[*] Generating checksums..."
-sha256sum ${ISO_NAME} > ${ISO_NAME}.sha256
-
-echo "[*] Signing ISO..."
-gpg --detach-sign --armor ${ISO_NAME}
-gpg --detach-sign ${ISO_NAME}
+echo ""
+echo "Sentinel Standard Build Complete"
+echo "  ${ISO_NAME}.iso"
+echo "  ${ISO_NAME}.sha256"
+echo ""
