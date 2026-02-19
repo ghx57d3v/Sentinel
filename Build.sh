@@ -9,7 +9,7 @@ set -euo pipefail
 DIST="bookworm"
 ARCH="amd64"
 LIVE_USER="sentinel"
-VERSION="1.0"
+VERSION="1.0-AMBROSO"
 ISO_NAME="SentinelOS_${VERSION}_${ARCH}"
 BUILD_DATE="$(date -u +%Y-%m-%d)"
 GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo 'nogit')"
@@ -36,7 +36,6 @@ export TZ=UTC
 ############################################
 
 lb clean --purge || true
-rm -rf config secureboot
 
 ############################################
 # Secure Boot Keys
@@ -82,6 +81,14 @@ lightdm
 lightdm-gtk-greeter
 firefox-esr
 git
+inkscape
+kleopatra
+veracrypt
+mat2
+exiftool
+gimp
+gnome-disk-utility
+usbimager
 gnupg
 apparmor
 apparmor-utils
